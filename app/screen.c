@@ -6,6 +6,7 @@
  * The band painter, font and input helpers are kept from the original. */
 #include "instrument.h"
 #include "sampledrum.h"
+#include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
 #include <string.h>
@@ -123,9 +124,8 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         }
     }
 }
-/* One page: the kit lives on track 8 (MIDI channel 10). The eight black keys
- * from F#3 pick and play a drum, the sixteen white keys toggle its steps in
- * the bar on screen. All drawing and edits run on the control task. */
+/* One page and no sequencer: the keys play a DX7 on track 1, or (HOME) the
+ * drum kit on track 8. All drawing and edits run on the control task. */
 #include "beach_scene.inc"
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
@@ -140,18 +140,26 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "HOME:SYNTH ENV:VAPE EDIT:DEL LFO:GAME";
-enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, GAME_W = 8, GAME_H = 14 };
 
-static unsigned track = KIT, cursor, selected_note, drum, writing;
-static unsigned kit_ready, knob_bank, bar, follow, armed, edit_fired, ble_was_linked;
-static uint32_t kit_retry, edit_since, scene_at, glo_since, seek_until, seek_at;
-static unsigned glo_fired, seeking;
-/* A held white key is a held step: K1-K4 edit that step until it is released. */
-static unsigned held_step = GROOVE_STEPS, held_key, held_fresh, held_edited, arp_fired, frame_repeat;
+static unsigned drum;
+static unsigned kit_ready, knob_bank, ble_was_linked;
+static uint32_t kit_retry, scene_at, glo_since, seek_until, seek_at, pulse_until;
+static unsigned glo_fired, seeking, arp_fired, frame_repeat;
 static uint32_t arp_since;
-static uint8_t frame_held[4];
-static unsigned view_page = PAGE_SPLASH, last_step;
+/* The preset list: the voice in use and its three neighbours either side. */
+static char frame_names[7][11];
+static unsigned names_program = ~0U;
+/* Coin pusher (OP1+OP2+OP3). Positions are in eighths of a logical pixel on a
+ * 120x120 field. A coin that goes over the front edge plays a note chosen by
+ * where it fell and moves the smoke, which is the effects macro. */
+enum { COINS = 30, COIN_R = 5, COIN_LEFT = 12, COIN_RIGHT = 108, COIN_BACK = 22, COIN_EDGE = 86, COIN_TICK = 80,
+       COIN_CHORD = (1U << 1) | (1U << 3) | (1U << 5) };
+static struct coin { int16_t x, y; uint8_t state, age; } coins[COINS]; /* state: 0 none, 1 on the table, 2 falling */
+static struct { uint8_t note, channel, ticks; } coin_notes[4];
+static unsigned coin_phase, coin_next, coin_frame, coin_target;
+static uint32_t coin_at, coin_random;
+static unsigned view_page = PAGE_SPLASH;
 static uint32_t splash_at, glitch_until;
 /* Scene effects: a torn, colour-split frame on snare and clap hits, and the
  * vapor cloud blown by ENV. Both are read by the band painter. */
@@ -165,14 +173,14 @@ enum { FX_KIT_REVERB, FX_KIT_DELAY, FX_SYNTH_REVERB, FX_SYNTH_DELAY, FX_FEEDBACK
 static uint8_t fx_base[FX_COUNT];
 static unsigned fx_applied;
 /* HOME hands the keys to the synth on track 1. */
-static unsigned synth_mode, synth_retry;
+static unsigned synth_mode = 1, synth_retry;
 static int octave;
 static uint8_t key_channel[27];
 static struct groove_view frame_synth;
 static uint8_t frame_synth_sends[2];
 static char frame_voice[11];
 /* The radar: ten controls on ten spokes, each 0 to 100. No numbers anywhere. */
-enum { RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO, RADAR_SWING, RADAR_REVERB, RADAR_DELAY,
+enum { RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO, RADAR_RETURN, RADAR_REVERB, RADAR_DELAY,
        RADAR_FEEDBACK, RADAR_SMOKE, RADAR_SYNTH, RADAR_AXES, RADAR_X = 196, RADAR_Y = 161, RADAR_R = 30 };
 static uint8_t frame_radar[RADAR_AXES], frame_axis[4];
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
@@ -193,9 +201,8 @@ static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
 /* One frame of instrument state; both paint passes read the same snapshot. */
 static struct groove_view frame_view;
-static uint64_t frame_lanes[8];
 static uint8_t frame_pots[GROOVE_TONE_PARAMS], frame_sends[2], frame_effects[4];
-static unsigned frame_step_drums, frame_swing, frame_samples, frame_dirty;
+static unsigned frame_samples, frame_dirty;
 struct draw_cache {
     unsigned shown;
     uint32_t scene, sea, sun, effects, status, hint, radar, foot[4], lane[8];
@@ -372,63 +379,145 @@ static const char *drum_title(unsigned pad)
 static void status_draw(void)
 {
     if (paint_rendering && (paint_top >= 128 || paint_top + PAINT_ROWS <= 112)) return;
-    const struct groove_view *v = &frame_view;
-    unsigned bars = v->sequence_length / 16U, blink = (frame_time / 250U) & 1U;
-    unsigned recording = writing || (armed && blink);
-    const unsigned state[] = {frame_radar[RADAR_TEMPO], scene_pulse, synth_mode ? 64U + frame_synth.program + ((unsigned)(octave + 2) << 8) : drum, v->tempo, v->playing, recording, bar, bars, v->clock_mode,
-                              v->playing ? v->play_step / 16U : 4U, frame_dirty};
-    uint32_t sig = signature(5381, state, sizeof state);
+    unsigned sounding = led_cache != 0;
+    const unsigned state[] = {frame_radar[RADAR_TEMPO], scene_pulse, synth_mode, frame_synth.program, (unsigned)(octave + 2),
+                              drum, sounding, frame_view.clock_mode, frame_dirty};
+    uint32_t sig = signature(signature(5381, state, sizeof state), frame_voice, sizeof frame_voice);
     if (sig == cache->status) return;
     cache->status = sig;
     paint_fill(0, 112, FM1_SCREEN_WIDTH, 16, BACK);
-    /* Transport light: the Terms Of Service pulse, red while playing. */
-    paint_fill(2, 114, 12, 11, v->playing ? lane_color[0] : DIM);
+    /* The Terms Of Service pulse lights while anything is sounding. */
+    paint_fill(2, 114, 12, 11, sounding ? lane_color[0] : DIM);
     paint_fill(3, 120, 3, 2, BACK);
     paint_fill(5, 117, 2, 5, BACK);
     paint_fill(5, 117, 6, 2, BACK);
     paint_fill(9, 117, 2, 5, BACK);
     paint_fill(10, 120, 3, 2, BACK);
-    char name[10] = {0};
-    strncpy(name, synth_mode ? frame_voice : drum_title(drum), 9);
+    char name[11] = {0};
+    strncpy(name, synth_mode ? frame_voice : drum_title(drum), 10);
     text(16, 113, name, 2, synth_mode ? lane_color[2] : lane_color[pad_lane[drum]], BACK);
-    for (unsigned b = 0; b < 4; ++b) {
-        paint_fill(128 + b * 8, 116, 6, 7, b == bar ? TEXT : b < bars ? INK_LANE : INK);
-        if (v->playing && b == v->play_step / 16U) paint_fill(128 + b * 8, 124, 6, 2, lane_color[0]);
-    }
-    /* Tempo is a bar, not a figure: longer is faster, and it flashes on the beat. */
+    /* Octave: five dots, the lit one is where the keys sit. */
+    for (int o = -2; o <= 2; ++o) paint_fill(140 + (unsigned)(o + 2) * 4, 119, 3, 3, synth_mode && o == octave ? TEXT : INK_LANE);
+    /* Tempo is a bar, not a figure: longer is faster. */
     paint_fill(164, 117, 62, 6, INK);
-    paint_fill(164, 117, frame_radar[RADAR_TEMPO] * 62U / 100U, 6,
-               v->clock_mode ? AMBER : scene_pulse ? lane_color[0] : TEXT);
-    if (recording) paint_fill(230, 116, 7, 7, RED);
-    else if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
+    paint_fill(164, 117, frame_radar[RADAR_TEMPO] * 62U / 100U, 6, frame_view.clock_mode ? AMBER : TEXT);
+    if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
 }
-static void grid_draw(void)
+/* Left of the radar: the preset list while the keys play the synth, eight
+ * pads while they play the drums. */
+static void browser_draw(void)
 {
     if (paint_rendering && (paint_top >= 193 || paint_top + PAINT_ROWS <= 129)) return;
-    const struct groove_view *v = &frame_view;
-    unsigned head = v->playing && v->play_step / 16U == bar ? (v->play_step & 15U) : 16U;
+    if (cache->cell[0][0] != synth_mode) {
+        cache->cell[0][0] = (uint8_t)synth_mode;
+        memset(cache->lane, 0xff, sizeof cache->lane);
+        paint_fill(0, 129, 152, 64, BACK);
+    }
+    if (synth_mode) {
+        for (unsigned row = 0; row < 7; ++row) {
+            unsigned y = 130 + row * 9, distance = row > 3 ? row - 3 : 3 - row;
+            if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 9 <= paint_top)) continue;
+            uint32_t sig = signature(row, frame_names[row], 10);
+            if (sig == cache->lane[row]) continue;
+            cache->lane[row] = sig;
+            uint16_t bg = distance ? BACK : lane_color[2];
+            paint_fill(0, y - 1, 140, 9, bg);
+            text(distance ? 10 : 4, y, frame_names[row], 1,
+                 !distance ? BACK : distance == 1 ? TEXT : distance == 2 ? DIM : INK_LANE, bg);
+        }
+        /* Where this voice sits among all of them. */
+        uint32_t sig = frame_synth.program;
+        if (sig != cache->lane[7] && !(paint_rendering && 0)) {
+            cache->lane[7] = sig;
+            paint_fill(145, 130, 3, 62, INK);
+            paint_fill(144, 130 + frame_synth.program * 58U / 127U, 5, 4, lane_color[2]);
+        }
+        return;
+    }
     for (unsigned lane = 0; lane < 8; ++lane) {
-        unsigned y = 129 + lane * 8, pad = lane_pad[lane], selected = pad == drum;
-        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 8 <= paint_top)) continue;
+        unsigned x = 2 + (lane & 3U) * 37, y = 130 + (lane >> 2) * 32, pad = lane_pad[lane];
+        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 30 <= paint_top)) continue;
+        unsigned hit = key_note[pad_keys[lane]] != 0xff || key_note[white_keys[lane]] != 0xff;
         const char *name = groove_pad_name(KIT, pad);
         char label[3] = {name[0], name[0] ? name[1] : 0, 0};
-        uint32_t sig = selected | ((uint32_t)(uint8_t)label[0] << 8) | ((uint32_t)(uint8_t)label[1] << 16);
-        if (sig != cache->lane[lane]) {
-            cache->lane[lane] = sig;
-            uint16_t bg = selected ? lane_color[lane] : BACK;
-            paint_fill(0, y, 14, 7, bg);
-            text(1, y, label, 1, selected ? BACK : lane_color[lane], bg);
+        uint32_t sig = hit | ((pad == drum) << 1) | ((uint32_t)(uint8_t)label[0] << 8) | ((uint32_t)(uint8_t)label[1] << 16);
+        if (sig == cache->lane[lane]) continue;
+        cache->lane[lane] = sig;
+        uint16_t bg = hit ? lane_color[lane] : INK;
+        paint_fill(x, y, 34, 29, pad == drum ? lane_color[lane] : INK_LANE);
+        paint_fill(x + 1, y + 1, 32, 27, bg);
+        text(x + 5, y + 8, label, 2, hit ? BACK : lane_color[lane], bg);
+    }
+}
+static unsigned coin_pusher_y(void)
+{
+    unsigned travel = coin_phase < 30 ? coin_phase : 60U - coin_phase;
+    return 34U + travel * 22U / 30U;
+}
+/* One logical pixel of the coin pusher: coins over the machine. */
+static uint16_t coin_pixel(int x, int y, const uint8_t *near, unsigned count)
+{
+    for (unsigned k = 0; k < count; ++k) {
+        const struct coin *c = &coins[near[k]];
+        int dx = x - (c->x >> 3), dy = y - (c->y >> 3);
+        int r = c->state == 2 ? COIN_R - c->age / 2 : c->age < 2 ? COIN_R + 1 : COIN_R, d = dx * dx + dy * dy;
+        if (r < 2) r = 2;
+        if (d > r * r) continue;
+        if (d > (r - 1) * (r - 1)) return BEACH_RGB(150, 92, 16);
+        if (dx + dy <= -r + 1) return BEACH_RGB(255, 246, 190);
+        if (d <= 2) return BEACH_RGB(214, 150, 36);
+        return dx - dy > r - 2 ? BEACH_RGB(226, 166, 40) : BEACH_RGB(250, 200, 64);
+    }
+    if (y < COIN_BACK) {
+        /* Marquee: chasing bulbs either side of the Terms Of Service mark. */
+        int dx = x - 60, dy = y - 11, ax = dx < 0 ? -dx : dx;
+        if (dx * dx + dy * dy <= 81) {
+            if ((dy >= -3 && dy <= -2 && ax <= 3) || (dy >= -3 && dy <= 2 && ax >= 2 && ax <= 3) ||
+                (dy >= 1 && dy <= 2 && ax >= 2 && ax <= 6))
+                return BEACH_RGB(14, 8, 30);
+            return BEACH_RGB(232, 36, 48);
         }
-        unsigned steps = (unsigned)(frame_lanes[lane] >> (bar * 16U)) & 0xffffU;
-        for (unsigned i = 0; i < 16; ++i) {
-            unsigned on = (steps >> i) & 1U;
-            uint8_t cell = (uint8_t)(on | ((i == head) << 1) | (selected << 2));
-            if (cell == cache->cell[lane][i]) continue;
-            cache->cell[lane][i] = cell;
-            paint_fill(16 + i * 8 + (i / 4) * 2, y, 7, 6,
-                       on ? (i == head ? TEXT : lane_color[lane])
-                          : i == head ? HEAD : selected ? INK_LANE : i % 4 ? INK : INK_BEAT);
+        if ((y == 4 || y == 17) && x % 8 == 4) return ((unsigned)x / 8U + coin_frame / 2U) % 3U ? BEACH_RGB(120, 60, 20) : BEACH_RGB(255, 236, 150);
+        return y == COIN_BACK - 1 ? BEACH_RGB(190, 198, 216) : BEACH_RGB(90, 14, 34);
+    }
+    if (x < COIN_LEFT - COIN_R || x > COIN_RIGHT + COIN_R) return x % 3 ? BEACH_RGB(46, 22, 78) : BEACH_RGB(70, 36, 110);
+    if (y > COIN_EDGE) {
+        /* The tray: fifteen slots, one per note. */
+        unsigned along = (unsigned)(x - (COIN_LEFT - COIN_R)) * 15U, zone = along / 107U;
+        if (y == COIN_EDGE + 1) return BEACH_RGB(206, 212, 228);
+        if (along % 107U < 15U) return BEACH_RGB(8, 4, 18);
+        return y > 114 ? lane_color[zone % 8U] : BEACH_RGB(22, 12, 44);
+    }
+    int plate = (int)coin_pusher_y();
+    if (y < plate) return y == plate - 1 ? BEACH_RGB(240, 244, 252) : (y & 3) ? BEACH_RGB(160, 170, 196) : BEACH_RGB(112, 122, 152);
+    if (y == plate) return BEACH_RGB(28, 12, 56);
+    return ((x ^ y) & 1) ? BEACH_RGB(60, 30, 104) : BEACH_RGB(50, 24, 90);
+}
+static void coins_draw(void)
+{
+    if (!paint_rendering) {
+        if (cache->status != coin_frame) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
+        cache->status = coin_frame;
+        return;
+    }
+    unsigned stride = paint_end - paint_x;
+    for (unsigned row = paint_top; row < paint_top + PAINT_ROWS; row += 2) {
+        uint8_t near[COINS];
+        unsigned count = 0, last = ~0U;
+        int y = (int)(row >> 1);
+        for (unsigned i = 0; i < COINS; ++i) {
+            int away = (coins[i].y >> 3) - y;
+            if (coins[i].state && away >= -COIN_R - 1 && away <= COIN_R + 1) near[count++] = (uint8_t)i;
         }
+        uint16_t *out = paint_pixels + (row - paint_top) * stride, color = 0;
+        for (unsigned col = paint_x; col < paint_end; ++col) {
+            if ((col >> 1) != last) {
+                last = col >> 1;
+                color = coin_pixel((int)last, y, near, count);
+            }
+            out[col - paint_x] = color;
+        }
+        memcpy(out + stride, out, stride * sizeof *out);
     }
 }
 #ifdef FM1_HOST_TEST
@@ -456,21 +545,7 @@ static void knob(unsigned col, const char *label, unsigned amount)
 }
 static void knobs_draw(void)
 {
-    static const char *const labels[2][4] = {{"LEVEL", "TUNE", "DECAY", "TEMPO"},
-                                             {"REVERB", "DELAY", "FEEDBACK", "SWING"}};
-    static const uint8_t axes[2][4] = {{RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO},
-                                       {RADAR_REVERB, RADAR_DELAY, RADAR_FEEDBACK, RADAR_SWING}};
     memset(frame_axis, 0xff, sizeof frame_axis);
-    if (held_step < GROOVE_STEPS) {
-        static const char *const targets[5] = {"LOCK OFF", "LEVEL", "TUNE", "DECAY", "OTHER"};
-        unsigned lock = frame_held[2], target = !lock ? 0 : (lock - 1U) / SAMPLE_DRUM_PARAMS == drum &&
-            (lock - 1U) % SAMPLE_DRUM_PARAMS < 3 ? (lock - 1U) % SAMPLE_DRUM_PARAMS + 1U : 4;
-        knob(0, "VELOCITY", frame_held[0] * 100U / 127U);
-        knob(1, "CHANCE", frame_held[1] ? frame_held[1] * 100U / 8U : 100U);
-        knob(2, targets[target], target ? 100U : 0U);
-        knob(3, "VALUE", lock ? frame_held[3] * 100U / 127U : 0U);
-        return;
-    }
     if (knob_bank == 2) {
         frame_axis[0] = RADAR_SMOKE;
         knob(0, "SMOKE", smoke);
@@ -479,17 +554,15 @@ static void knobs_draw(void)
         knob(3, "CLEAR", smoke ? 0U : 100U);
         return;
     }
-    if (synth_mode) {
-        frame_axis[1] = RADAR_SYNTH; frame_axis[2] = RADAR_REVERB; frame_axis[3] = RADAR_DELAY;
-        knob(0, "VOICE", frame_synth.program * 100U / 127U);
-        knob(1, "VOLUME", frame_radar[RADAR_SYNTH]);
-        knob(2, "REVERB", frame_radar[RADAR_REVERB]);
-        knob(3, "DELAY", frame_radar[RADAR_DELAY]);
-        return;
-    }
+    static const char *const labels[3][4] = {{"LEVEL", "TUNE", "DECAY", "TEMPO"}, {"VOLUME", "REVERB", "DELAY", "TEMPO"},
+                                             {"REVERB", "DELAY", "FEEDBACK", "FX LEVEL"}};
+    static const uint8_t axes[3][4] = {{RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO},
+                                       {RADAR_SYNTH, RADAR_REVERB, RADAR_DELAY, RADAR_TEMPO},
+                                       {RADAR_REVERB, RADAR_DELAY, RADAR_FEEDBACK, RADAR_RETURN}};
+    unsigned set = knob_bank ? 2U : synth_mode;
     for (unsigned col = 0; col < 4; ++col) {
-        frame_axis[col] = axes[knob_bank][col];
-        knob(col, labels[knob_bank][col], frame_radar[frame_axis[col]]);
+        frame_axis[col] = axes[set][col];
+        knob(col, labels[set][col], frame_radar[frame_axis[col]]);
     }
 }
 /* Direct pixel work for the radar; band painter only. */
@@ -568,13 +641,13 @@ static void radar_draw(void)
 static void hint_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 231) return;
-    const char *line = notice ? notice : held_step < GROOVE_STEPS ? "STEP HELD: K1-K4 EDIT THIS STEP ONLY"
-        : frame_samples != 2 ? "NO SAMPLES: WRITE THE KIT FROM THE WEB" : help;
+    const char *line = notice ? notice : frame_samples != 2 && !synth_mode ? "NO SAMPLES: WRITE THE KIT FROM THE WEB"
+        : synth_mode ? "PLAY/REC:PRESET HOME:DRUMS ENV:VAPE" : "HOME:SYNTH ARP:REPEAT ENV:VAPE LFO:GAME";
     uint32_t sig = signature(notice != NULL, line, (unsigned)strlen(line));
     if (sig == cache->hint) return;
     cache->hint = sig;
     paint_fill(0, 231, FM1_SCREEN_WIDTH, 7, BACK);
-    text(4, 231, line, 1, notice || frame_samples != 2 ? AMBER : DIM, BACK);
+    text(4, 231, line, 1, notice ? AMBER : DIM, BACK);
 }
 /* Splash: the Terms Of Service mark (a disc with a square pulse, redrawn from
  * the act's own logo) over the Mizu Records name, both jittered. */
@@ -668,12 +741,13 @@ static void draw_page(void)
         cache->shown = view_page;
         paint_fill(0, SCENE_ROWS, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT - SCENE_ROWS, BACK);
     }
+    if (view_page == PAGE_COINS) { coins_draw(); return; }
     scene_draw();
     if (view_page == PAGE_SPLASH) splash_draw();
     else if (view_page == PAGE_GAME) game_draw();
     else {
         status_draw();
-        grid_draw();
+        browser_draw();
         knobs_draw();
         radar_draw();
         hint_draw();
@@ -681,28 +755,20 @@ static void draw_page(void)
 }
 static void leds(void)
 {
-    const struct groove_view *v = &frame_view;
     uint32_t bits = 0;
-    unsigned steps = (unsigned)(frame_lanes[pad_lane[drum]] >> (bar * 16U)) & 0xffffU;
-    unsigned bars = v->sequence_length / 16U, blink = (frame_time / 250U) & 1U;
-    for (unsigned i = 0; i < 16; ++i)
-        if ((steps >> i) & 1U) bits |= 1U << white_keys[i];
-    if (v->playing && v->play_step / 16U == bar) bits ^= 1U << white_keys[v->play_step & 15U];
-    /* The selected drum stays lit; every drum winks when the pattern hits it. */
-    for (unsigned lane = 0; lane < 8; ++lane)
-        if ((lane_pad[lane] == drum) != ((frame_step_drums >> lane_pad[lane]) & 1U)) bits |= 1U << pad_keys[lane];
-    if (synth_mode) {
-        bits = 0;
-        for (unsigned key = 0; key < 27; ++key)
-            if (key_note[key] != 0xff) bits |= 1U << key;
-    }
+    for (unsigned key = 0; key < 27; ++key)
+        if (key_note[key] != 0xff) bits |= 1U << key;
+    /* In drum mode the sixteen pad keys glow and wink out while they are held. */
+    if (!synth_mode && view_page == PAGE_KIT)
+        for (unsigned lane = 0; lane < 8; ++lane) bits ^= (1U << pad_keys[lane]) | (1U << white_keys[lane]);
+    if (view_page == PAGE_COINS) bits = (frame_time / 120U) & 1U ? COIN_CHORD : 0;
     uint32_t changed = bits ^ led_cache;
     for (unsigned key = 0; key < 27; ++key)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
-    bits = ((synth_mode ? octave < 0 : bar > 0) << OCT_DOWN) | ((synth_mode ? octave > 0 : bar + 1U < bars) << OCT_UP) | ((knob_bank == 1) << FX) | (synth_mode << HOME)
-        | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP) | (follow << SEQ)
-        | ((v->playing != 0) << PLAY) | ((writing || (armed && blink)) << REC);
+    bits = ((octave < 0) << OCT_DOWN) | ((octave > 0) << OCT_UP) | ((knob_bank == 1) << FX) | (synth_mode << HOME)
+        | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP)
+        | (1U << PLAY) | (1U << REC);
     changed = bits ^ button_led_cache;
     for (unsigned key = 0; key < 14; ++key)
         if (changed & (1U << key)) fm1_led_set(key, (bits >> key) & 1U);
@@ -712,68 +778,54 @@ static void draw(void)
 {
     frame_time = fm1_millis();
     if (notice && (int32_t)(frame_time - notice_until) >= 0) notice = NULL;
-    groove_get_view(KIT, cursor, &frame_view);
-    frame_step_drums = 0;
-    if (frame_view.playing) {
-        struct groove_view at = {0};
-        groove_get_view(KIT, frame_view.play_step, &at);
-        frame_step_drums = at.step.drums;
-    }
-    for (unsigned lane = 0; lane < 8; ++lane) frame_lanes[lane] = groove_drum_steps(KIT, lane_pad[lane]);
+    groove_get_view(KIT, 0, &frame_view);
     memset(frame_pots, 0, sizeof frame_pots);
     groove_tone_copy(KIT, drum, frame_pots);
     groove_sends_get(KIT, frame_sends);
     groove_effects_get(frame_effects);
-    frame_swing = groove_sequence_setting(0);
     frame_samples = groove_samples_status();
     groove_background_poll();
     scene_picture = groove_background();
     frame_repeat = groove_arp_enabled(KIT) != 0;
     groove_get_view(SYNTH, 0, &frame_synth);
     groove_sends_get(SYNTH, frame_synth_sends);
-    if (synth_mode) {
-        uint8_t patch[156];
-        memcpy(frame_voice, "SYNTH", 6);
-        if (!groove_fm_copy(SYNTH, patch, NULL)) { memcpy(frame_voice, patch + 145, 10); frame_voice[10] = 0; }
+    uint8_t patch[156];
+    if (frame_synth.program != names_program) {
+        names_program = frame_synth.program;
+        for (unsigned row = 0; row < 7; ++row) {
+            groove_fm_program(patch, (names_program + FM1_FM_PROGRAMS + row - 3U) % FM1_FM_PROGRAMS);
+            memcpy(frame_names[row], patch + 145, 10);
+            frame_names[row][10] = 0;
+        }
     }
+    memcpy(frame_voice, "SYNTH", 6);
+    if (!groove_fm_copy(SYNTH, patch, NULL)) { memcpy(frame_voice, patch + 145, 10); frame_voice[10] = 0; }
     const uint8_t *sends = synth_mode ? frame_synth_sends : frame_sends;
     frame_radar[RADAR_LEVEL] = (uint8_t)(frame_pots[SAMPLE_DRUM_LEVEL] * 100U / 127U);
     frame_radar[RADAR_TUNE] = (uint8_t)(frame_pots[SAMPLE_DRUM_TUNE] * 100U / 48U);
     frame_radar[RADAR_DECAY] = (uint8_t)(frame_pots[SAMPLE_DRUM_LENGTH] * 100U / 127U);
     frame_radar[RADAR_TEMPO] = (uint8_t)(frame_view.tempo > 30 ? (frame_view.tempo - 30U) * 100U / 270U : 0U);
-    frame_radar[RADAR_SWING] = (uint8_t)(frame_swing * 2U);
+    frame_radar[RADAR_RETURN] = (uint8_t)(frame_effects[3] > 100 ? 100 : frame_effects[3]);
     frame_radar[RADAR_REVERB] = (uint8_t)(sends[0] * 100U / 15U);
     frame_radar[RADAR_DELAY] = (uint8_t)(sends[1] * 100U / 15U);
     frame_radar[RADAR_FEEDBACK] = frame_effects[2] > 100 ? 100 : frame_effects[2];
     frame_radar[RADAR_SMOKE] = (uint8_t)smoke;
     frame_radar[RADAR_SYNTH] = (uint8_t)(frame_synth.volume * 100U / 127U);
-    if (held_step < GROOVE_STEPS) {
-        frame_held[0] = (uint8_t)groove_step_setting(KIT, held_step, 0);
-        frame_held[1] = (uint8_t)groove_step_setting(KIT, held_step, 2);
-        frame_held[2] = (uint8_t)groove_step_setting(KIT, held_step, 5);
-        frame_held[3] = (uint8_t)groove_step_setting(KIT, held_step, 6);
-    }
     frame_dirty = groove_project_dirty() != 0;
-    /* The stars drift in time; the red star swells on every quarter note. */
-    if (frame_time - scene_at >= (frame_view.playing ? 140U : 320U)) {
+    /* The stars drift slowly; the red star swells with every note played. */
+    if (frame_time - scene_at >= 220U) {
         scene_at = frame_time;
         ++scene_phase;
     }
-    scene_pulse = frame_view.playing && !(frame_view.play_step & 3U);
-    /* Every drum lights the mark in its own colour, from the pattern or the keys. */
+    scene_pulse = (int32_t)(pulse_until - frame_time) > 0;
+    /* A held drum lights the mark in its own colour; the synth lights it blue. */
     scene_mark = BEACH_RGB(14, 8, 30);
-    if (synth_mode && led_cache) scene_mark = lane_color[2];
-    for (unsigned lane = 0; lane < 8; ++lane)
-        if (((frame_step_drums >> lane_pad[lane]) & 1U) || key_note[pad_keys[lane]] != 0xff) {
-            scene_mark = lane_color[lane];
-            break;
-        }
+    for (unsigned key = 0; key < 27; ++key)
+        if (key_note[key] != 0xff) scene_mark = lane_color[2];
+    if (!synth_mode)
+        for (unsigned lane = 0; lane < 8; ++lane)
+            if (key_note[pad_keys[lane]] != 0xff || key_note[white_keys[lane]] != 0xff) scene_mark = lane_color[lane];
     /* Snare and clap tear the picture for a moment; the splash never settles. */
-    unsigned step = frame_view.playing ? frame_view.play_step + 1U : 0;
-    if (step != last_step) {
-        last_step = step;
-        if (step && (frame_step_drums & 0x0aU)) { glitch = step; glitch_until = frame_time + 90U; }
-    }
     if (view_page == PAGE_SPLASH) { glitch = 1U + (frame_time / 120U) % 250U; glitch_until = frame_time + 200U; }
     if (glitch && (int32_t)(frame_time - glitch_until) >= 0) glitch = 0;
     paint_priority = 0;
@@ -842,12 +894,11 @@ static int release_keys(void)
         }
     return 1;
 }
-static void toggle_step(unsigned step)
+static void clear_lane(unsigned pad)
 {
-    struct groove_view v = {0};
-    groove_get_view(KIT, step, &v);
-    groove_sequence_edit(KIT, step, groove_pad_note(KIT, drum), (v.step.drums & (1U << drum)) ? 0 : 100);
-    cursor = step;
+    uint64_t steps = groove_drum_steps(KIT, pad);
+    for (unsigned step = 0; step < GROOVE_STEPS; ++step)
+        if ((steps >> step) & 1U) groove_sequence_edit(KIT, step, groove_pad_note(KIT, pad), 0);
 }
 static int kit_loaded(void)
 {
@@ -863,8 +914,14 @@ static void kit_prepare(uint32_t now)
     if (kit_loaded()) {
         if (!kit_ready) {
             kit_ready = 1;
-            drum = cursor = bar = writing = armed = 0;
-            follow = 1;
+            drum = 0;
+            /* There is no sequencer here: stop it and empty any pattern an
+             * earlier build saved, so nothing plays by itself. */
+            struct groove_view transport = {0};
+            groove_get_view(KIT, 0, &transport);
+            if (transport.playing) (void)post(0xfc, 0, 0, 1);
+            groove_edit_record(0, KIT, 0);
+            for (unsigned pad = 0; pad < 8; ++pad) clear_lane(pad);
         }
         /* Settings left by other firmware must not silence the kit. */
         if (groove_track_role(KIT) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(KIT, GROOVE_TRACK_NORMAL);
@@ -893,19 +950,6 @@ static void kit_prepare(uint32_t now)
         kit_retry = now + 1000U;
         say("KIT LOAD FAILED - RETRYING", now, 1500);
     }
-}
-static void clear_lane(unsigned pad)
-{
-    uint64_t steps = groove_drum_steps(KIT, pad);
-    for (unsigned step = 0; step < GROOVE_STEPS; ++step)
-        if ((steps >> step) & 1U) groove_sequence_edit(KIT, step, groove_pad_note(KIT, pad), 0);
-}
-static void clear_step(unsigned step)
-{
-    struct groove_view v = {0};
-    groove_get_view(KIT, step, &v);
-    for (unsigned pad = 0; pad < 8; ++pad)
-        if (v.step.drums & (1U << pad)) groove_sequence_edit(KIT, step, groove_pad_note(KIT, pad), 0);
 }
 /* GLO is the one Bluetooth MIDI control. A tap shows the link. A hold closes
  * an open link; without one it swaps who connects: a phone or computer finds
@@ -1055,31 +1099,119 @@ static void fx_knob(unsigned index, int delta)
     fx_base[index] = (uint8_t)clamp((int)fx_base[index] + delta, 0, index == FX_FEEDBACK ? 100 : 15);
     fx_apply(fx_applied);
 }
-/* Per-step edits while a step is held: velocity, chance of playing, and one
- * parameter lock (level, tune or decay of the selected drum, on this step only).
- * A step keeps one velocity, chance and lock for all the drums on it. */
-static void step_knob(unsigned col, int turn, uint32_t now)
+static unsigned coin_roll(unsigned range)
 {
-    int old = (int)groove_step_setting(KIT, held_step, col == 0 ? 0 : col == 1 ? 2 : col == 2 ? 5 : 6), r = 0;
-    held_edited = 1;
-    if (col == 0) {
-        int delta = encoder_delta(2, (int16_t)turn);
-        if (old + delta < 1) delta = 1 - old;
-        if (delta) r = groove_step_setting_edit(KIT, held_step, 0, delta);
-    } else if (col == 1) r = groove_step_setting_edit(KIT, held_step, 2, turn);
-    else if (col == 2) {
-        int base = (int)drum * SAMPLE_DRUM_PARAMS;
-        int index = old > base && old <= base + 3 ? old - base : 0;
-        index = clamp(index + (turn > 0) - (turn < 0), 0, 3);
-        int target = index ? base + index : 0;
-        if (target != old) r = groove_step_setting_edit(KIT, held_step, 5, target - old);
-    } else r = groove_step_setting_edit(KIT, held_step, 6, encoder_delta(5, (int16_t)turn));
-    if (r) say("LOCKS FULL: 16 PER PATTERN", now, 1500);
+    coin_random = coin_random * 1664525U + 1013904223U;
+    return (coin_random >> 12) % range;
+}
+static void coin_drop(unsigned x)
+{
+    /* A full table sheds the coin nearest the edge to make room. */
+    unsigned live = 0, front = 0;
+    for (unsigned i = 0; i < COINS; ++i)
+        if (coins[i].state == 1) { ++live; if (coins[i].y > coins[front].y || coins[front].state != 1) front = i; }
+    if (live >= COINS - 4U) coins[front].y = (int16_t)(COIN_EDGE * 8 + 1);
+    for (unsigned i = 0; i < COINS; ++i)
+        if (!coins[i].state) {
+            coins[i].x = (int16_t)(clamp((int)x, COIN_LEFT, COIN_RIGHT) * 8);
+            coins[i].y = (int16_t)((coin_pusher_y() + COIN_R + 1U) * 8U);
+            coins[i].state = 1;
+            coins[i].age = 0;
+            return;
+        }
+}
+static void coin_notes_off(unsigned all)
+{
+    for (unsigned i = 0; i < 4; ++i)
+        if (coin_notes[i].ticks && (all || !--coin_notes[i].ticks)) {
+            (void)post((uint8_t)(0x80 + coin_notes[i].channel), coin_notes[i].note, 0, 3);
+            coin_notes[i].ticks = 0;
+        }
+}
+/* A coin went over the edge: fifteen slots across the front, low notes on the
+ * left, a minor pentatonic over three octaves. Each fall also picks a new
+ * place for the smoke to drift to, and the smoke is the effects macro. */
+static void coin_fall(int x)
+{
+    static const uint8_t scale[5] = {0, 3, 5, 7, 10};
+    unsigned zone = (unsigned)clamp((x - (COIN_LEFT - COIN_R)) * 15 / 107, 0, 14), slot = 0;
+    unsigned note = 45U + 12U * (zone / 5U) + scale[zone % 5U], channel = groove_midi_input_channel(SYNTH);
+    for (unsigned i = 1; i < 4; ++i)
+        if (coin_notes[i].ticks < coin_notes[slot].ticks) slot = i;
+    if (coin_notes[slot].ticks) (void)post((uint8_t)(0x80 + coin_notes[slot].channel), coin_notes[slot].note, 0, 3);
+    if (!post((uint8_t)(0x90 + channel), (uint8_t)note, (uint8_t)(64U + coin_roll(56)), 3)) return;
+    coin_notes[slot].note = (uint8_t)note;
+    coin_notes[slot].channel = (uint8_t)channel;
+    coin_notes[slot].ticks = (uint8_t)(3U + coin_roll(8));
+    coin_target = coin_roll(86);
+    pulse_until = frame_time + 120U;
+}
+static void coins_step(void)
+{
+    ++coin_frame;
+    coin_phase = (coin_phase + 1U) % 60U;
+    coin_notes_off(0);
+    if (smoke != coin_target) smoke = (unsigned)((int)smoke + clamp((int)coin_target - (int)smoke, -3, 3));
+    if (!coin_next--) {
+        coin_drop(COIN_LEFT + coin_roll(COIN_RIGHT - COIN_LEFT + 1));
+        coin_next = 2U + coin_roll(7);
+    }
+    int plate = (int)coin_pusher_y() * 8, reach = COIN_R * 8;
+    for (unsigned i = 0; i < COINS; ++i) {
+        struct coin *c = &coins[i];
+        if (c->state == 2) {
+            c->y = (int16_t)(c->y + 28);
+            if (++c->age > 6) c->state = 0;
+        } else if (c->state) {
+            if (c->age < 8) ++c->age;
+            if (c->y - reach < plate) c->y = (int16_t)(plate + reach);
+        }
+    }
+    /* Coins shove the ones in front of them: the coin nearer the edge gives way. */
+    for (unsigned pass = 0; pass < 2; ++pass)
+        for (unsigned i = 0; i < COINS; ++i)
+            for (unsigned j = i + 1; j < COINS; ++j) {
+                if (coins[i].state != 1 || coins[j].state != 1) continue;
+                int dx = coins[j].x - coins[i].x, dy = coins[j].y - coins[i].y, d2 = dx * dx + dy * dy;
+                if (d2 >= 4 * reach * reach) continue;
+                struct coin *front = dy >= 0 ? &coins[j] : &coins[i];
+                if (dy < 0) { dx = -dx; dy = -dy; }
+                int d = 1;
+                while (d * d < d2) ++d;
+                int overlap = 2 * reach - d + 1;
+                front->x = (int16_t)(front->x + (d2 ? dx * overlap / d : 0));
+                front->y = (int16_t)(front->y + (d2 ? dy * overlap / d : overlap));
+            }
+    for (unsigned i = 0; i < COINS; ++i) {
+        struct coin *c = &coins[i];
+        if (c->state != 1) continue;
+        c->x = (int16_t)clamp(c->x, COIN_LEFT * 8, COIN_RIGHT * 8);
+        if (c->y > COIN_EDGE * 8) {
+            c->state = 2;
+            c->age = 0;
+            coin_fall(c->x >> 3);
+        }
+    }
+}
+static void coins_enter(uint32_t now)
+{
+    memset(coins, 0, sizeof coins);
+    memset(coin_notes, 0, sizeof coin_notes);
+    coin_random ^= now * 2654435761U + 909U;
+    coin_phase = coin_frame = coin_next = 0;
+    coin_target = smoke;
+    coin_at = now;
+    for (unsigned i = 0; i < 16; ++i) {
+        coin_drop(COIN_LEFT + coin_roll(COIN_RIGHT - COIN_LEFT + 1));
+        coins[i].y = (int16_t)((62U + coin_roll(22)) * 8U);
+    }
+    view_page = PAGE_COINS;
 }
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
     uint32_t pressed = controls->buttons & ~previous_buttons, previous_arp = previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
+    unsigned chord = (controls->keys & COIN_CHORD) == COIN_CHORD && (previous_keys & COIN_CHORD) != COIN_CHORD;
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
     blocked_keys &= controls->keys;
@@ -1095,16 +1227,41 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     if (!kit_ready) return;
     read_encoders(controls, now, pressed != 0);
     struct groove_view view = {0};
-    groove_get_view(KIT, cursor, &view);
-    unsigned channel = groove_midi_input_channel(KIT);
+    groove_get_view(KIT, 0, &view);
 
-    /* Pages: splash at power-on, the game on LFO. */
     if (view_page == PAGE_SPLASH) {
         if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
         view_page = PAGE_KIT;
     }
-    /* ENV opens the vape knobs: SMOKE, DRIFT, MAX and CLEAR. */
-    if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
+    /* Presets are always one move away: PLAY is next, REC is previous, and the
+     * three outer encoders scroll the list. */
+    int preset = controls->encoders[0] + controls->encoders[1] + controls->encoders[6] +
+                 ((pressed >> PLAY) & 1) - (view_page == PAGE_GAME ? 0 : (int)((pressed >> REC) & 1));
+    if (preset) groove_control_edit(SYNTH, preset, 0, 0);
+    if (smoke != fx_applied) fx_apply(smoke);
+
+    /* OP1+OP2+OP3 together open and close the coin pusher. */
+    if (chord || (view_page == PAGE_COINS && (pressed & BUTTON(HOME)))) {
+        if (!release_keys()) return;
+        blocked_keys = controls->keys;
+        if (view_page == PAGE_COINS) {
+            coin_notes_off(1);
+            smoke = 0;
+            view_page = PAGE_KIT;
+        } else coins_enter(now);
+        return;
+    }
+    if (view_page == PAGE_COINS) {
+        /* Any key drops a coin above it. */
+        for (unsigned key = 0; key < 27; ++key)
+            if ((key_down & ~blocked_keys) & (1U << key)) coin_drop(COIN_LEFT + key * (COIN_RIGHT - COIN_LEFT) / 26U);
+        while (now - coin_at >= COIN_TICK) {
+            coin_at += COIN_TICK;
+            if (now - coin_at > 400U) coin_at = now;
+            coins_step();
+        }
+        return;
+    }
     if (pressed & BUTTON(LFO)) {
         if (!release_keys()) return;
         view_page = view_page == PAGE_GAME ? PAGE_KIT : PAGE_GAME;
@@ -1112,53 +1269,24 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         game_fall_at = now;
     }
     if (view_page == PAGE_GAME) {
-        if ((pressed & BUTTON(PLAY)) && !post(view.playing ? 0xfc : 0xfa, 0, 0, 1)) return;
         game_control(controls, pressed, now);
         return;
     }
-
-    /* Transport and live recording. */
-    writing = groove_edit_recording();
-    if (pressed & BUTTON(PLAY)) {
-        if (!post(view.playing ? 0xfc : 0xfa, 0, 0, 1)) return;
-        if (!view.playing) follow = 1;
-        else armed = 0;
+    if (pressed & BUTTON(HOME)) {
+        if (!release_keys()) return;
+        synth_mode = !synth_mode;
+        blocked_keys = controls->keys;
+        say(synth_mode ? "SYNTH: ALL KEYS PLAY, OCT SHIFTS" : "DRUMS: FIRST EIGHT BLACK OR WHITE", now, 2000);
     }
-    if (pressed & BUTTON(REC)) {
-        if (writing || armed) writing = armed = 0;
-        else if (view.playing) writing = 1;
-        else {
-            if (!post(0xfa, 0, 0, 1)) return;
-            armed = follow = 1;
-        }
-    }
-    if (armed && view.playing) { armed = 0; writing = 1; }
-    else if (writing && !view.playing && !armed) writing = 0;
-    groove_edit_record(writing, KIT, cursor);
-
-    /* Bars: SCL sets the pattern length, OCT picks the bar on screen. */
-    unsigned bars = view.next_length / 16U;
-    if (pressed & BUTTON(SCL)) {
-        static const char *const lengths[4] = {"PATTERN: 1 BAR", "PATTERN: 2 BARS", "PATTERN: 3 BARS", "PATTERN: 4 BARS"};
-        bars = bars % 4U + 1U;
-        groove_sequence_length_set(KIT, bars * 16U);
-        say(lengths[bars - 1], now, 1500);
-    }
-    if (synth_mode && (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP)))) {
+    if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) {
         if (!release_keys()) return;
         octave = clamp(octave + (pressed & BUTTON(OCT_UP) ? 1 : -1), -2, 2);
-    } else if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) {
-        bar = (unsigned)clamp((int)bar + (pressed & BUTTON(OCT_UP) ? 1 : -1), 0, (int)bars - 1);
-        follow = 0;
     }
-    if (pressed & BUTTON(SEQ)) follow = 1;
-    if (follow && view.playing) bar = view.play_step / 16U;
-    if (bar >= bars && !(follow && view.playing)) bar = bars - 1U;
-    if (bar > 3) bar = 3;
-
+    if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
     if (pressed & BUTTON(FX)) knob_bank = knob_bank == 1 ? 0 : 1;
-    /* ARP is note repeat: each tap steps through four rates, then off. A held
-     * drum key then retriggers in time. Holding ARP swaps the clock source. */
+    if (pressed & BUTTON(SEQ)) groove_screen_tap(now);
+    /* ARP is note repeat for the drums: each tap steps through four rates,
+     * then off. Holding ARP swaps the clock source. */
     if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
     if ((controls->buttons & BUTTON(ARP)) && !arp_fired && now - arp_since >= 1000U) {
         arp_fired = 1;
@@ -1167,150 +1295,80 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         say(external ? "SYNC: MIDI CLOCK" : "SYNC: INTERNAL", now, 1500);
     }
     if ((previous_arp & ~controls->buttons & BUTTON(ARP)) && !arp_fired) {
-        static const char *const rates[4] = {"REPEAT: RATE 1", "REPEAT: RATE 2", "REPEAT: RATE 3", "REPEAT: RATE 4"};
         if (!release_keys()) return;
         if (!groove_arp_enabled(KIT)) groove_arp_set(KIT, 1);
         else if (groove_arp_setting(KIT, 0) < 3) groove_arp_edit(KIT, 0, 1);
         else { groove_arp_set(KIT, 0); groove_arp_edit(KIT, 0, -3); }
-        say(groove_arp_enabled(KIT) ? rates[groove_arp_setting(KIT, 0) & 3U] : "REPEAT OFF", now, 1500);
+        say(groove_arp_enabled(KIT) ? "DRUM REPEAT: HOLD A PAD" : "DRUM REPEAT OFF", now, 1500);
     }
-    if (pressed & BUTTON(HOME)) {
-        if (!release_keys()) return;
-        synth_mode = !synth_mode;
-        held_step = GROOVE_STEPS;
-        blocked_keys = controls->keys;
-        say(synth_mode ? "SYNTH: KEYS PLAY, OCT SHIFTS" : "DRUMS: BLACK PLAY, WHITE STEP", now, 2000);
-    }
-    if (smoke != fx_applied) fx_apply(smoke);
     if (pressed & BUTTON(SAVE)) {
         /* Store the player's own effect settings, not the macro's push. */
         unsigned macro = fx_applied;
         if (macro) fx_apply(0);
         int r = groove_project_save_slot(KIT_SLOT);
         if (macro) fx_apply(macro);
-        say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "PATTERN SAVED", now, 1500);
-    }
-    /* EDIT is delete: with a white key it empties that step, with a black key
-     * that drum, and held on its own for two seconds the whole pattern. */
-    unsigned erasing = (controls->buttons & BUTTON(EDIT)) != 0;
-    if (pressed & BUTTON(EDIT)) {
-        edit_since = now;
-        edit_fired = 0;
-        say("EDIT+KEY: DELETE  HOLD: DELETE ALL", now, 2000);
-    }
-    if (erasing && !edit_fired && now - edit_since >= 2000U) {
-        edit_fired = 1;
-        for (unsigned pad = 0; pad < 8; ++pad) clear_lane(pad);
-        say("PATTERN DELETED", now, 1500);
+        say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "SOUND SAVED", now, 1500);
     }
 
-    /* Encoders: the outer three pick the drum and tempo, K1-K4 follow the footer. */
-    int move = controls->encoders[0] + controls->encoders[1];
-    if (move) drum = lane_pad[clamp((int)pad_lane[drum] + move, 0, 7)];
-    if (controls->encoders[6]) groove_tempo_edit(controls->encoders[6]);
+    /* K1-K4 follow the bars at the bottom left. */
     for (unsigned col = 0; col < 4; ++col) {
         int16_t turn = controls->encoders[2 + col];
         if (!turn) continue;
-        if (held_step < GROOVE_STEPS) { step_knob(col, turn, now); continue; }
         if (knob_bank == 2) {
             if (col == 0) smoke = (unsigned)clamp((int)smoke + turn * 2, 0, 100);
             else if (col == 1) smoke_drift = (unsigned)clamp((int)smoke_drift + turn, 1, 6);
             else smoke = col == 2 ? 100 : 0;
-            continue;
-        }
-        if (synth_mode) {
-            if (col == 0) groove_control_edit(SYNTH, turn, 0, 0);
-            else if (col == 1) groove_control_edit(SYNTH, 0, encoder_delta(2 + col, turn), 0);
-            else fx_knob(col, turn); /* FX_SYNTH_REVERB, FX_SYNTH_DELAY */
-            continue;
-        }
-        if (knob_bank) {
-            if (col < 2) fx_knob(col, turn);
+        } else if (knob_bank == 1) {
+            if (col < 2) fx_knob((synth_mode ? FX_SYNTH_REVERB : FX_KIT_REVERB) + col, turn);
             else if (col == 2) fx_knob(FX_FEEDBACK, encoder_delta(2 + col, turn));
-            else groove_sequence_setting_edit(0, turn);
+            else groove_effects_edit(3, encoder_delta(2 + col, turn));
         } else if (col == 3) {
             groove_tempo_edit(turn);
+            if (groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - HOLD ARP FOR INTERNAL", now, 2000);
+        } else if (synth_mode) {
+            if (col == 0) groove_control_edit(SYNTH, 0, encoder_delta(2 + col, turn), 0);
+            else fx_knob(FX_SYNTH_REVERB + col - 1U, turn);
         } else {
             static const uint8_t parameter[3] = {SAMPLE_DRUM_LEVEL, SAMPLE_DRUM_TUNE, SAMPLE_DRUM_LENGTH};
             groove_tone_edit(KIT, drum, parameter[col], col == 1 ? turn : encoder_delta(2 + col, turn));
         }
-        if (!knob_bank && col == 3 && groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - HOLD ARP FOR INTERNAL", now, 2000);
     }
 
+    /* Keys. Synth: all 27 play, F3 to G5 before the octave shift. Drums: the
+     * first eight black keys and the first eight white keys are the pads. */
     uint32_t keys = controls->keys & ~blocked_keys;
-    if (synth_mode) {
-        /* All 27 keys play the synth, F3 to G5 before the octave shift. */
-        unsigned synth_channel = groove_midi_input_channel(SYNTH);
-        for (unsigned key = 0; key < 27; ++key) {
-            unsigned down = (keys >> key) & 1U, note = groove_key_note(SYNTH, key, octave);
-            if (key_note[key] != 0xff && !down) {
-                if (!post((uint8_t)(0x80 + key_channel[key]), key_note[key], 0, 3)) return;
-                key_note[key] = 0xff;
-            }
-            if (down && key_note[key] == 0xff && note < 128) {
-                if (!post((uint8_t)(0x90 + synth_channel), (uint8_t)note, 100, 3)) return;
-                key_note[key] = (uint8_t)note;
-                key_channel[key] = (uint8_t)synth_channel;
-            }
-        }
-        return;
-    }
-    /* Keys: black keys play and select drums, white keys write steps. */
-    for (unsigned lane = 0; lane < 8; ++lane) {
-        unsigned key = pad_keys[lane], down = (keys >> key) & 1U, note = groove_pad_note(KIT, lane_pad[lane]);
+    for (unsigned key = 0; key < 27; ++key) {
+        unsigned down = (keys >> key) & 1U, track = synth_mode ? SYNTH : KIT, note = 128, lane = 8;
+        if (synth_mode) note = groove_key_note(SYNTH, key, octave);
+        else
+            for (unsigned i = 0; i < 8; ++i)
+                if (key == pad_keys[i] || key == white_keys[i]) { lane = i; note = groove_pad_note(KIT, lane_pad[i]); }
         if (key_note[key] != 0xff && !down) {
-            if (!post((uint8_t)(0x80 + channel), key_note[key], 0, 3)) return;
+            if (!post((uint8_t)(0x80 + key_channel[key]), key_note[key], 0, 3)) return;
             key_note[key] = 0xff;
         }
-        if (erasing) {
-            if ((key_down & keys) & (1U << key)) {
-                drum = lane_pad[lane];
-                clear_lane(drum);
-                edit_fired = 1;
-                say("DRUM DELETED", now, 1200);
-            }
-            continue;
-        }
         if (down && key_note[key] == 0xff && note < 128) {
+            unsigned channel = groove_midi_input_channel(track);
             if (!post((uint8_t)(0x90 + channel), (uint8_t)note, 100, 3)) return;
             key_note[key] = (uint8_t)note;
             key_channel[key] = (uint8_t)channel;
-            drum = lane_pad[lane];
-        }
-    }
-    for (unsigned i = 0; i < 16; ++i)
-        if ((key_down & keys) & (1U << white_keys[i])) {
-            if (erasing) {
-                clear_step(bar * 16U + i);
-                edit_fired = 1;
-                say("STEP DELETED", now, 1200);
-            } else {
-                /* An empty step gets its trig at once so it can be edited while held;
-                 * a tap on an existing trig removes it on release. */
-                held_step = bar * 16U + i;
-                held_key = white_keys[i];
-                held_edited = 0;
-                held_fresh = !((groove_drum_steps(KIT, drum) >> held_step) & 1U);
-                if (held_fresh) toggle_step(held_step);
+            pulse_until = now + 90U;
+            if (lane < 8) {
+                drum = lane_pad[lane];
+                if (lane == 1 || lane == 4) { glitch = 1U + (now & 255U); glitch_until = now + 90U; }
             }
         }
-    if (held_step < GROOVE_STEPS && !(keys & (1U << held_key))) {
-        if (!held_fresh && !held_edited) toggle_step(held_step);
-        held_step = GROOVE_STEPS;
     }
-    selected_note = groove_pad_note(KIT, drum);
 }
 void groove_screen_init(void)
 {
-    track = KIT;
-    cursor = drum = writing = kit_ready = knob_bank = bar = armed = edit_fired = ble_was_linked = seeking = 0;
-    follow = 1;
-    held_step = GROOVE_STEPS;
-    kit_retry = scene_at = splash_at = fm1_millis();
+    drum = kit_ready = knob_bank = ble_was_linked = seeking = 0;
+    kit_retry = scene_at = splash_at = synth_retry = fm1_millis();
     view_page = PAGE_SPLASH;
-    last_step = glitch = smoke = smoke_shown = fx_applied = synth_mode = 0;
+    glitch = smoke = smoke_shown = fx_applied = 0;
+    synth_mode = 1;
     octave = 0;
-    synth_retry = fm1_millis();
+    names_program = ~0U;
     smoke_drift = 2;
     scene_phase = scene_pulse = 0;
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
@@ -1368,15 +1426,10 @@ void groove_screen_control(void)
     }
     paint_flush();
 }
+/* There is no sequencer to start or stop: MIDI Machine Control is ignored. */
 void groove_screen_mmc(unsigned command)
 {
-    unsigned transport = command == 1 || command == 9 ? 0xfc :
-                         command == 2 || command == 3 || command == 6 ? 0xfb : 0;
-    if (!transport && command != 7) return;
-    writing = command == 6;
-    armed = 0;
-    groove_edit_record(writing, KIT, cursor);
-    if (transport) (void)post((uint8_t)transport, 0, 0, 1);
+    (void)command;
 }
 #ifdef FM1_HOST_TEST
 /* Browser preview hooks. The workbench page is shared with FM1 Open, so its
@@ -1392,10 +1445,10 @@ unsigned groove_screen_preset_position(void) { return (1U << 8) | (kit_ready << 
 int groove_screen_open(unsigned target) { return target ? -1 : 0; }
 unsigned groove_screen_web_context(void)
 {
-    const unsigned context[] = {drum, knob_bank, bar};
+    const unsigned context[] = {drum, knob_bank, synth_mode};
     return signature(2166136261U, context, sizeof context);
 }
-unsigned groove_screen_web_mask(void) { return frame_view.clock_mode && !knob_bank ? 7U : 15U; }
+unsigned groove_screen_web_mask(void) { return view_page != PAGE_KIT ? 0U : frame_view.clock_mode && !knob_bank ? 7U : 15U; }
 const void *groove_screen_web_targets(void)
 {
     draw();
@@ -1417,24 +1470,18 @@ int groove_screen_web_adjust(unsigned context, unsigned action, unsigned index, 
     return (int)index + 3; /* Encoder index + 1. */
 }
 const char *groove_screen_web_knobs(void) { return &web_knobs[0][0][0]; }
-unsigned groove_screen_web_first(void) { return bar * 16U; }
+unsigned groove_screen_web_first(void) { return 0; }
 int groove_screen_web_step(unsigned step, unsigned toggle)
 {
-    if (!kit_ready || step >= frame_view.sequence_length || toggle > 1) return -1;
-    view_page = PAGE_KIT;
-    bar = step / 16U;
-    follow = 0;
-    if (toggle) toggle_step(step);
-    return 0;
+    (void)step; (void)toggle;
+    return -1; /* no sequencer */
 }
 /* Read-only panel state for the browser simulator. */
 void groove_screen_snapshot(uint8_t state[8])
 {
     memset(state, 0, 8);
-    state[0] = KIT;
-    state[2] = (uint8_t)cursor;
+    state[0] = synth_mode ? SYNTH : KIT;
     state[3] = (uint8_t)drum;
-    state[4] = (uint8_t)writing;
-    state[7] = 24;
+    state[7] = (uint8_t)(octave + 24);
 }
 #endif

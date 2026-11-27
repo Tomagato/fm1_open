@@ -2,38 +2,33 @@
 
 A Terms Of Service release on Mizu Records.
 
-A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art view of deep space. The red star is the Terms Of Service logo, and its pulse lights up in the colour of whichever drum is sounding.
+A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a simple instrument to play live: a DX7 synth with a quick preset list, a 909-style drum kit, reverb and delay, a coin pusher that plays notes by chance, under a pixel-art view of deep space. The red star is the Terms Of Service logo, and its pulse lights up in the colour of whichever drum is sounding.
 
 The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loaded with a 909-style drum kit. The kit is synthesized (oscillators and noise, `web/synth/demo_bank.h`); it contains no recordings. The stock firmware fills its Flash slot to within a few hundred bytes, so the multi-page FM1 Open panel (DX7/303/808 editors, mixer, Bluetooth and MIDI menus) is not in this build. The engines, MIDI input, USB audio and the workbench transfers are unchanged.
 
 | Control | Beach 909 |
 | --- | --- |
-| Black keys F#3 to A#4 (first eight) | Play and select a drum: BD, SD, CH, OH, CP, RS, TM, CR |
-| White keys (sixteen) | Tap to add or remove a step for the selected drum in the bar on screen |
-| PLAY / REC | Start or stop / record the black keys into the running pattern |
-| K1 to K4 | LEVEL, TUNE, DECAY of the selected drum, TEMPO |
-| FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, SWING |
-| Other three encoders | Two select the drum, one sets the tempo |
-| SCL | Pattern length, 1 to 4 bars |
-| OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
-| EDIT + white key | Delete that step (every drum on it) |
-| EDIT + black key | Delete that drum from the whole pattern |
-| EDIT (hold 2 s) | Delete the whole pattern |
-| HOME | Synth mode: all 27 keys play a DX7 on track 1 (MIDI channel 1). OCT shifts the octave; K1 to K4 are VOICE, VOLUME, REVERB and DELAY. Press HOME again for the drums. The synth is played live; it is not recorded into the pattern |
+| Keys | Play the DX7 synth (all 27 keys). There is no sequencer: everything is played live |
+| PLAY / REC | Next / previous synth preset. The three outer encoders scroll the preset list too |
+| HOME | Swap the keys between the synth and the drum kit. Drums: the first eight black keys or the first eight white keys are the pads (BD SD CH OH CP RS TM CR) |
+| OCT - / OCT + | Octave of the synth |
+| K1 to K4 | Synth: VOLUME, REVERB, DELAY, TEMPO. Drums: LEVEL, TUNE, DECAY of the last pad hit, TEMPO |
+| FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, FX LEVEL |
 | ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
-| LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
-| Hold a white key + K1 to K4 | Edit that step only: VELOCITY, CHANCE of playing, parameter LOCK (level, tune or decay of the selected drum) and its VALUE. A step keeps one velocity, chance and lock for all the drums on it; a pattern holds 16 locks |
-| ARP (tap) | Note repeat: four rates, then off. A held drum key retriggers in time |
+| OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high) and sends the smoke, and so the effects, somewhere new. Any key drops a coin above it. The same three keys, or HOME, leave |
+| ARP (tap) | Drum repeat: four rates, then off. A held pad retriggers in time |
 | ARP (hold) | Internal tempo or external MIDI clock |
+| SEQ | Tap tempo |
+| LFO | Tide Blocks, a falling-block game (OCT moves, SEQ turns, REC drops) |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
-| SAVE | Store the pattern (project slot 16; other slots are never written) |
+| SAVE | Store the sound settings (project slot 16; other slots are never written) |
 | MASTER | Output volume |
 
-The kit also answers MIDI notes on channel 10.
+The synth answers MIDI notes on channel 1 and the kit on channel 10.
 
 ## Reading the screen
 
-There are no numbers on the main page. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, swing, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
+There are no numbers on the main page. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, effects level, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
 
 ## Background picture
 

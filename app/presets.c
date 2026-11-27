@@ -220,7 +220,7 @@ static int beach_build(struct groove_project *p)
 {
     static const struct part empty = {GROOVE_PSG,LEAD,0,100,0}, kit = {GROOVE_SAMPLE,BEAT,0,100,2},
         synth = {GROOVE_DX7,KEYS,ELECTRIC,96,4 + 16 * 2};
-    static const uint16_t lanes[SAMPLE_DRUM_PADS] = {0x1111,0x0000,0x0480,0x1010,0x0000,0x0000,0xaaaa,0x4444};
+    static const uint16_t lanes[SAMPLE_DRUM_PADS] = {0}; /* played live: no pattern */
     static const uint8_t levels[SAMPLE_DRUM_PADS] = {112,98,80,90,94,72,70,74};
     memset(p, 0, sizeof *p);
     memcpy(p->name, "BEACH 909   ", sizeof p->name);
