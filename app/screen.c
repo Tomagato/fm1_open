@@ -140,14 +140,14 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(240, 110, 180), BEACH_RGB(180, 130, 250), BEACH_RGB(100, 150, 255), BEACH_RGB(70, 214, 200)};
 static const char kit_name[] = "BEACH 909";
 static const char help[] = "EDIT:DELETE FX:KNOBS ENV:VAPE LFO:GAME";
-enum { PAGE_KIT = 1, PAGE_GAME, PAGE_TERMS, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
 static unsigned kit_ready, knob_bank, bar, follow, armed, edit_fired, ble_was_linked;
 static uint32_t kit_retry, edit_since, scene_at, glo_since, seek_until, seek_at;
 static unsigned glo_fired, seeking;
-static unsigned view_page = PAGE_SPLASH, home_fired, last_step;
-static uint32_t splash_at, home_since, glitch_until, vape_at;
+static unsigned view_page = PAGE_SPLASH, last_step;
+static uint32_t splash_at, glitch_until, vape_at;
 /* Scene effects: a torn, colour-split frame on snare and clap hits, and the
  * vapor cloud blown by ENV. Both are read by the band painter. */
 static unsigned glitch, vape_on, vape_age, vape_fade;
@@ -451,37 +451,34 @@ static void hint_draw(void)
     paint_fill(0, 231, FM1_SCREEN_WIDTH, 7, BACK);
     text(4, 231, line, 1, notice || frame_samples != 2 ? AMBER : DIM, BACK);
 }
-/* Mizu Records wordmark: the label's name in the panel font, jittered. */
+/* Splash: the Terms Of Service mark (a disc with a square pulse, redrawn from
+ * the act's own logo) over the Mizu Records name, both jittered. */
 static void splash_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
     static const uint16_t tint[4] = {TEXT, 0x07ff, 0xf81f, TEXT};
+    enum { DISC = 26, DISC_Y = 146 };
     unsigned jitter = (frame_time / 90U) & 7U, shift = jitter == 2 ? 3U : jitter == 5 ? 0U : 1U;
     if (cache->status == jitter) return;
     cache->status = jitter;
-    paint_fill(0, 118, FM1_SCREEN_WIDTH, 60, BACK);
-    text(69 + shift * 3, 120, "MIZU", 4, tint[jitter & 3U], BACK);
-    text(80 - shift * 2, 156, "RECORDS", 2, tint[(jitter + 1U) & 3U], BACK);
+    paint_fill(0, 116, FM1_SCREEN_WIDTH, 96, BACK);
+    unsigned cx = 117 + shift * 3;
+    uint16_t disc = jitter == 2 ? 0x07ff : jitter == 5 ? TEXT : BEACH_RGB(209, 21, 33);
+    for (int dy = -DISC; dy <= DISC; ++dy) {
+        unsigned half = 0;
+        while ((int)((half + 1U) * (half + 1U)) + dy * dy <= DISC * DISC) ++half;
+        paint_fill(cx - half, (unsigned)(DISC_Y + dy), 2U * half + 1U, 1, disc);
+    }
+    paint_fill(cx - 20, DISC_Y + 4, 14, 5, BACK);
+    paint_fill(cx - 11, DISC_Y - 8, 5, 17, BACK);
+    paint_fill(cx - 11, DISC_Y - 8, 23, 5, BACK);
+    paint_fill(cx + 7, DISC_Y - 8, 5, 17, BACK);
+    paint_fill(cx + 7, DISC_Y + 4, 14, 5, BACK);
+    text(72, 178, "TERMS OF SERVICE", 1, TEXT, BACK);
+    text(50 - shift * 2, 192, "MIZU RECORDS", 2, tint[(jitter + 1U) & 3U], BACK);
     if (cache->hint == 1) return;
     cache->hint = 1;
-    text(66, 186, kit_name, 2, lane_color[0], BACK);
-    text(48, 212, "FM1 OPEN " FM1_RELEASE_VERSION " - UNOFFICIAL", 1, DIM, BACK);
-    text(54, 226, "HOLD HOME FOR THE TERMS", 1, DIM, BACK);
-}
-static void terms_draw(void)
-{
-    static const char *const lines[] = {
-        "BEACH 909 IS FREE SOFTWARE UNDER GPLV3", "WITH THE FM1 SDK LINKING EXCEPTION.",
-        "NO WARRANTY. FLASHING IS AT YOUR OWN",   "RISK AND MAY ERASE DATA OR STOP THE",
-        "DEVICE FROM STARTING.",                  "UNOFFICIAL: NOT MADE OR ENDORSED BY",
-        "M-VAVE OR ROLAND.",                      "THE MIZU RECORDS NAME AND MARK ARE",
-        "NOT LICENSED BY THE GPL.",               "FULL TERMS: TERMS.MD WITH THE SOURCE.",
-        "ANY BUTTON: BACK"};
-    if (cache->status == 1) return;
-    cache->status = 1;
-    text(48, 114, "TERMS OF USE", 2, lane_color[2], BACK);
-    for (unsigned i = 0; i < sizeof lines / sizeof lines[0]; ++i)
-        text(4, 132 + i * 9, lines[i], 1, i == 10 ? DIM : TEXT, BACK);
+    text(66, 216, kit_name, 2, lane_color[0], BACK);
 }
 static const struct { uint8_t size, count; int8_t cell[4][2]; } game_shapes[6] = {
     {2, 2, {{0, 0}, {1, 0}}},                 {3, 3, {{0, 1}, {1, 1}, {2, 1}}},
@@ -548,7 +545,6 @@ static void draw_page(void)
     }
     scene_draw();
     if (view_page == PAGE_SPLASH) splash_draw();
-    else if (view_page == PAGE_TERMS) terms_draw();
     else if (view_page == PAGE_GAME) game_draw();
     else {
         status_draw();
@@ -886,20 +882,10 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     groove_get_view(KIT, cursor, &view);
     unsigned channel = groove_midi_input_channel(KIT);
 
-    /* Pages: splash at power-on, terms on a held HOME, the game on LFO. */
+    /* Pages: splash at power-on, the game on LFO. */
     if (view_page == PAGE_SPLASH) {
         if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
         view_page = PAGE_KIT;
-    } else if (view_page == PAGE_TERMS) {
-        if (pressed) { view_page = PAGE_KIT; blocked_keys = controls->keys; }
-        return;
-    }
-    if (pressed & BUTTON(HOME)) { home_since = now; home_fired = 0; }
-    if ((controls->buttons & BUTTON(HOME)) && !home_fired && now - home_since >= 1000U) {
-        home_fired = 1;
-        if (!release_keys()) return;
-        view_page = PAGE_TERMS;
-        return;
     }
     vape_control(controls, pressed);
     if (pressed & BUTTON(LFO)) {
@@ -1034,7 +1020,7 @@ void groove_screen_init(void)
     follow = 1;
     kit_retry = scene_at = splash_at = fm1_millis();
     view_page = PAGE_SPLASH;
-    home_fired = last_step = glitch = vape_on = vape_age = vape_fade = 0;
+    last_step = glitch = vape_on = vape_age = vape_fade = 0;
     scene_phase = scene_pulse = 0;
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
     led_cache = button_led_cache = 0;

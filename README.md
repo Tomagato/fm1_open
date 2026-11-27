@@ -1,6 +1,6 @@
 # Beach 909 for M-VAVE FM-1
 
-A Mizu Records release. Terms of use: [TERMS.md](TERMS.md).
+A Terms Of Service release on Mizu Records.
 
 A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art sunset.
 
@@ -21,7 +21,6 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | EDIT (hold 2 s) | Delete the whole pattern |
 | ENV (hold) | Vape: a pixel vape pen appears on the beach and puffs a cloud across the sunset (animation only) |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
-| HOME (hold) | Terms of use |
 | ARP | Internal tempo or external MIDI clock |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the pattern (project slot 16; other slots are never written) |

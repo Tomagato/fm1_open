@@ -31,6 +31,8 @@
     57% { transform:translate(-3px,0); clip-path:inset(4% 0 80% 0); }
     59% { transform:none; clip-path:inset(0); }
   }
+  .tos { width:120px; height:120px; display:block; margin:0 auto 10px; filter:drop-shadow(5px 0 0 #46d6c8aa) drop-shadow(-5px 0 0 #ff2f9eaa); }
+  .act { margin:0 0 30px; letter-spacing:.4em; text-indent:.4em; font-size:14px; }
   .records { margin:6px 0 0; letter-spacing:.62em; text-indent:.62em; font-size:clamp(14px,3.2vw,26px); }
   h1 { margin:38px 0 0; font-size:clamp(22px,5vw,40px); letter-spacing:.14em; color:var(--ink); background:var(--sun); display:inline-block; padding:4px 16px; }
   main { max-width:760px; margin:0 auto; padding:36px 20px 80px; }
@@ -49,6 +51,11 @@
 </head>
 <body>
 <header class="sky">
+  <svg class="tos" xmlns="http://www.w3.org/2000/svg" viewBox="-1.05 -1.05 2.1 2.1" role="img" aria-label="Terms Of Service">
+    <circle r="0.985" fill="#D11521" stroke="#111111" stroke-width="0.03"/>
+    <path d="M-0.75 0.25H-0.33V-0.25H0.33V0.25H0.75" fill="none" stroke="#111111" stroke-width="0.2"/>
+  </svg>
+  <p class="act">TERMS OF SERVICE</p>
   <p class="label" data-text="MIZU">MIZU</p>
   <p class="records">RECORDS</p>
   <div><h1>BEACH 909</h1></div>
@@ -57,7 +64,7 @@
 <div class="grid" aria-hidden="true"></div>
 <main>
   <p class="lead">A one-page 909-style drum machine for the M-VAVE FM-1: eight drums, sixteen steps, reverb and delay, a vape animation and a block game, under a pixel sunset.</p>
-  <p class="note">Unofficial firmware, not yet validated on hardware. Installing it is at your own risk. Read the terms below before you update.</p>
+  <p class="note">Unofficial firmware, not yet validated on hardware. Installing it is at your own risk. Back up first.</p>
   <div class="actions">
     <a class="button primary" href="FM1-Official-Open-Source.html">Open the install page</a>
     <a class="button" href="FM1_OFFICIAL_OPEN.fwsc" download>Download .fwsc</a>
@@ -72,18 +79,7 @@
     <li>In Projects &amp; sounds, write the built-in samples to the device to load the 909 kit.</li>
   </ol>
 
-  <h2>TERMS OF USE</h2>
-  <p>By installing or using Beach 909 you accept these terms. They describe how the licences that already apply work in practice; they do not add restrictions to them.</p>
-  <ol>
-    <li><strong>Free software.</strong> The application source is licensed under the GNU GPL version 3 with the FM1 SDK linking exception. You may use, study, change and share it under that licence. The binary SDK and other bundled components keep their own terms. The full licences and notices are in the install page and in the source.</li>
-    <li><strong>No warranty.</strong> The firmware is provided as is, without warranty of any kind, as set out in sections 15 to 17 of the GPL.</li>
-    <li><strong>Flashing is at your own risk.</strong> Installing firmware can erase projects, samples and settings, and a failed or incompatible update can leave the device unable to start. The install page can restore the original M-VAVE V15 firmware, but recovery is not guaranteed.</li>
-    <li><strong>Unofficial.</strong> Beach 909 is not made, endorsed or supported by M-VAVE or by Roland. "909" describes the style of the drum kit, which is synthesized and contains no recordings.</li>
-    <li><strong>Name and mark.</strong> The Mizu Records name and wordmark identify this release. The GPL does not grant trademark rights: do not present a modified version as coming from Mizu Records.</li>
-    <li><strong>Your music is yours.</strong> Patterns and recordings you make with Beach 909 belong to you.</li>
-    <li><strong>Mandatory rights.</strong> Nothing here limits rights you have under law that cannot be excluded.</li>
-  </ol>
-  <footer>Beach 909 is a fork of FM1 Open by M-VAVE. Terms as published in TERMS.md with the source.</footer>
+  <footer>Beach 909 is a fork of FM1 Open by M-VAVE, released under the GPLv3 with the FM1 SDK linking exception; the licences and notices are in the install page. Not made or endorsed by M-VAVE or Roland. The Terms Of Service logo and the Mizu Records name are not licensed by the GPL.</footer>
 </main>
 </body>
 </html>
