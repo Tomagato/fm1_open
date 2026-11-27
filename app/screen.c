@@ -9,6 +9,7 @@
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
+#include "audio_output.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -141,7 +142,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BITCH909";
 static const char old_kit_name[] = "BEACH 909"; /* what earlier builds called it; their saved loops still load */
-enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, GAME_W = 8, GAME_H = 14 };
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, PAGE_FX, GAME_W = 8, GAME_H = 14 };
 
 static unsigned drum;
 /* The loop: REC records what is played into a four-bar loop on the track the
@@ -161,7 +162,8 @@ static unsigned names_program = ~0U;
  * 120x120 field. A coin that goes over the front edge plays a note chosen by
  * where it fell and moves the smoke, which is the effects macro. */
 enum { COINS = 30, COIN_R = 5, COIN_LEFT = 12, COIN_RIGHT = 108, COIN_BACK = 22, COIN_EDGE = 86,
-       COIN_CHORD = (1U << 1) | (1U << 3) | (1U << 5), KNIFE_CHORD = (1U << 8) | (1U << 10) };
+       COIN_CHORD = (1U << 1) | (1U << 3) | (1U << 5), KNIFE_CHORD = (1U << 8) | (1U << 10),
+       BLOCK_CHORD = (1U << 13) | (1U << 15) | (1U << 17) /* OP6 + PIT + GLO */ };
 static struct coin { int16_t x, y; uint8_t state, age; } coins[COINS]; /* state: 0 none, 1 on the table, 2 falling */
 static struct { uint8_t note, channel, ticks; } coin_notes[6];
 static unsigned coin_phase, coin_next, coin_frame, coin_target;
@@ -181,6 +183,17 @@ enum { BLADES = 4, STUCK = 6 };
 static struct { int16_t x, y; uint8_t live; } blades[BLADES];
 static struct { int8_t x, y; } stuck[STUCK];
 static unsigned stuck_count, knife_a, knife_b, knife_flash, knife_size = 14;
+static const uint8_t *target_picture;
+/* Master FX window (hold FX): twelve effects on the whole mix. White keys hold
+ * one while pressed, black keys latch it. The first ten run in the audio
+ * output stage; FREEZE and WARP lean on the delay. */
+enum { FX_TILES = 12, FX_FREEZE = 10, FX_WARP = 11 };
+static const char *const fx_names[FX_TILES] = {"CRUSH", "DOWNSMPL", "DRIVE", "FOLD", "RING", "CHOP",
+                                               "STUTTER", "REVERSE", "LOWPASS", "HIGHPASS", "FREEZE", "WARP"};
+static unsigned fx_held, fx_latched, fx_depth = 10, fx_rate = 6, fx_sent = ~0U, fx_down, fx_fired, fx_engine;
+static uint32_t fx_since, warp_at;
+static uint8_t fx_delay[2]; /* the player's delay time and feedback while FREEZE or WARP has them */
+static unsigned intro; /* smoke over the welcome page and its fade into the first screen */
 static uint32_t coin_at, coin_random;
 static unsigned view_page = PAGE_SPLASH;
 static uint32_t splash_at, glitch_until;
@@ -661,7 +674,7 @@ static void hint_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 231) return;
     const char *line = notice ? notice : frame_samples != 2 && !synth_mode ? "NO SAMPLES: WRITE THE KIT FROM THE WEB"
-        : synth_mode ? "REC:LOOP SCL/SEQ:PRESET HOME:DRUMS" : "REC:LOOP HOME:SYNTH ARP:REPEAT ENV:VAPE";
+        : synth_mode ? "REC:LOOP SCL/SEQ:PRESET HOLD FX:MASTER" : "REC:LOOP HOME:SYNTH ARP:REPEAT ENV:VAPE";
     uint32_t sig = signature(notice != NULL, line, (unsigned)strlen(line));
     if (sig == cache->hint) return;
     cache->hint = sig;
@@ -738,7 +751,7 @@ static void game_draw(void)
         char lines[12];
         decimal(lines, (int)game_lines, 1);
         text(6, 182, lines, 3, TEXT, BACK);
-        static const char *const keys[] = {"OCT: MOVE", "SEQ: TURN", "REC: DROP", "PLAY: BEAT", "LFO: EXIT"};
+        static const char *const keys[] = {"OCT: MOVE", "SEQ: TURN", "REC: DROP", "PLAY: LOOP", "OP6+PIT+GLO"};
         for (unsigned i = 0; i < 5; ++i) text(162, 120 + i * 11, keys[i], 1, DIM, BACK);
         if (game_over) {
             text(162, 190, "WIPEOUT", 1, AMBER, BACK);
@@ -752,6 +765,29 @@ static void game_draw(void)
             paint_fill(88 + column * 8, 116 + row * 8, 8, 8, BACK);
             paint_fill(88 + column * 8, 116 + row * 8, 7, 7, board[row][column] ? lane_color[board[row][column] - 1U] : INK);
         }
+}
+static void fx_draw(void)
+{
+    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
+    unsigned active = fx_held | fx_latched;
+    for (unsigned i = 0; i < FX_TILES; ++i) {
+        unsigned x = 2 + (i % 4U) * 59, y = 114 + (i / 4U) * 26;
+        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 24 <= paint_top)) continue;
+        uint32_t sig = ((active >> i) & 1U) | (((fx_latched >> i) & 1U) << 1);
+        if (cache->cell[1][i] == (uint8_t)sig) continue;
+        cache->cell[1][i] = (uint8_t)sig;
+        uint16_t bg = (fx_latched >> i) & 1U ? lane_color[2] : (active >> i) & 1U ? lane_color[0] : INK;
+        paint_fill(x, y, 57, 24, (active >> i) & 1U ? TEXT : INK_LANE);
+        paint_fill(x + 1, y + 1, 55, 22, bg);
+        text(x + 4, y + 9, fx_names[i], 1, (active >> i) & 1U ? BACK : TEXT, bg);
+    }
+    knob(0, "DEPTH", fx_depth * 100U / 15U);
+    knob(1, "RATE", fx_rate * 100U / 15U);
+    if (cache->hint != 3) {
+        cache->hint = 3;
+        text(4, 214, "WHITE KEYS HOLD, BLACK KEYS LATCH", 1, DIM, BACK);
+        text(4, 228, "HOLD FX OR TAP HOME TO GO BACK", 1, DIM, BACK);
+    }
 }
 static void knife_target(int *x, int *y)
 {
@@ -773,6 +809,12 @@ static uint16_t knife_pixel(int x, int y)
     for (unsigned i = 0; i < stuck_count; ++i) { /* handles of the knives already in it */
         int hx = dx - stuck[i].x, hy = dy - stuck[i].y;
         if (hx >= -1 && hx <= 0 && hy >= 0 && hy <= 6) return hy == 0 ? BEACH_RGB(255, 206, 110) : BEACH_RGB(232, 36, 48);
+    }
+    if (d <= r * r && target_picture) {
+        /* The player's picture is the board, scaled to its size. */
+        int px = GROOVE_TARGET_SIZE / 2 + dx * (GROOVE_TARGET_SIZE / 2) / (r + 1), py = GROOVE_TARGET_SIZE / 2 + dy * (GROOVE_TARGET_SIZE / 2) / (r + 1);
+        const uint8_t *pixel = target_picture + ((unsigned)py * GROOVE_TARGET_SIZE + (unsigned)px) * 2U;
+        return (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
     }
     if (d <= r * r) {
         static const uint16_t rings[5] = {BEACH_RGB(232, 36, 48), BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),
@@ -851,6 +893,7 @@ static void draw_page(void)
     if (view_page == PAGE_COINS || view_page == PAGE_KNIVES) { arcade_draw(); return; }
     scene_draw();
     if (view_page == PAGE_SPLASH) splash_draw();
+    else if (view_page == PAGE_FX) fx_draw();
     else if (view_page == PAGE_GAME) game_draw();
     else {
         status_draw();
@@ -874,7 +917,7 @@ static void leds(void)
     for (unsigned key = 0; key < 27; ++key)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
-    bits = ((octave < 0) << OCT_DOWN) | ((octave > 0) << OCT_UP) | ((knob_bank == 1) << FX) | (synth_mode << HOME)
+    bits = ((octave < 0) << OCT_DOWN) | ((octave > 0) << OCT_UP) | ((knob_bank == 1 || (fx_latched && ((frame_time / 200U) & 1U))) << FX) | (synth_mode << HOME)
         | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP)
         | ((frame_view.playing != 0) << PLAY) | ((writing || (armed && ((frame_time / 250U) & 1U))) << REC);
     changed = bits ^ button_led_cache;
@@ -892,8 +935,9 @@ static void draw(void)
     groove_sends_get(KIT, frame_sends);
     groove_effects_get(frame_effects);
     frame_samples = groove_samples_status();
-    groove_background_poll();
-    scene_picture = groove_background();
+    groove_picture_poll();
+    scene_picture = groove_picture(0);
+    target_picture = groove_picture(1);
     frame_repeat = groove_arp_enabled(KIT) != 0;
     groove_get_view(SYNTH, 0, &frame_synth);
     groove_sends_get(SYNTH, frame_synth_sends);
@@ -941,14 +985,25 @@ static void draw(void)
     /* In the games the smoke still drives the effects in full, but only a
      * thin haze of it is drawn so the game stays visible. */
     smoke_seen = (view_page == PAGE_COINS || view_page == PAGE_KNIVES) && smoke > 38 ? 38 : smoke;
+    /* Welcome: four seconds clear, two and a half filling with smoke, then
+     * three more as it thins over the first screen. */
+    if (intro) {
+        uint32_t age = frame_time - splash_at;
+        unsigned cloud = age < 4000U ? 0U : age < 6500U ? (age - 4000U) * 100U / 2500U
+                       : age < 9500U ? 100U - (age - 6500U) * 100U / 3000U : 0U;
+        if (age >= 6500U && view_page == PAGE_SPLASH) view_page = PAGE_KIT;
+        if (age >= 9500U) intro = 0;
+        cloud = cloud / 4U * 4U;
+        if (cloud > smoke_seen) smoke_seen = cloud;
+    }
     paint_priority = 0;
     cache = &saved_cache;
     draw_page();
     /* The cloud moves with the stars: repaint what it covers on every drift,
      * and once more when it clears. */
-    unsigned drifting = smoke | (scene_phase << 8);
-    if ((smoke || smoke_shown) && drifting != smoke_shown) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
-    smoke_shown = smoke ? drifting : 0;
+    unsigned drifting = smoke_seen | (scene_phase << 8);
+    if ((smoke_seen || smoke_shown) && drifting != smoke_shown) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
+    smoke_shown = smoke_seen ? drifting : 0;
     /* The orbits move with the loop, faster than the sky drifts. */
     const uint32_t loop[] = {frame_view.playing ? frame_view.play_step + 1U : 0U, writing,
                              (uint32_t)frame_view.active_steps, (uint32_t)(frame_view.active_steps >> 32),
@@ -987,7 +1042,7 @@ static void paint_flush(void)
         memset(cache, 0xff, sizeof *cache);
         draw_page();
         if (view_page == PAGE_KIT) orbit_draw(); /* never over the games */
-        if (smoke) smoke_draw();
+        if (smoke_seen) smoke_draw();
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -1473,6 +1528,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     uint32_t pressed = controls->buttons & ~previous_buttons, previous_arp = previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
     unsigned chord = (controls->keys & COIN_CHORD) == COIN_CHORD && (previous_keys & COIN_CHORD) != COIN_CHORD;
+    unsigned block_chord = (controls->keys & BLOCK_CHORD) == BLOCK_CHORD && (previous_keys & BLOCK_CHORD) != BLOCK_CHORD;
     unsigned knife_chord = (controls->keys & KNIFE_CHORD) == KNIFE_CHORD && (previous_keys & KNIFE_CHORD) != KNIFE_CHORD &&
                            !(controls->keys & COIN_CHORD);
     previous_buttons = controls->buttons;
@@ -1493,15 +1549,35 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     groove_get_view(KIT, 0, &view);
 
     if (view_page == PAGE_SPLASH) {
-        if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
+        /* The welcome runs its course unless something is touched. */
+        if (!pressed && !key_down && !encoder_active(controls->encoders)) return;
         view_page = PAGE_KIT;
+        intro = 0;
+        blocked_keys = controls->keys;
     }
     /* Presets are always one move away: SEQ is next, SCL is previous, and the
      * three outer encoders scroll the list. */
     int preset = controls->encoders[0] + controls->encoders[1] + controls->encoders[6];
-    if (view_page != PAGE_GAME) preset += (int)((pressed >> SEQ) & 1) - (int)((pressed >> SCL) & 1);
+    if (view_page != PAGE_GAME && view_page != PAGE_FX) preset += (int)((pressed >> SEQ) & 1) - (int)((pressed >> SCL) & 1);
     if (preset) groove_control_edit(SYNTH, preset, 0, 0);
     if (smoke != fx_applied) fx_apply(smoke);
+    /* Master effects follow the window's keys wherever the player is. */
+    unsigned master = fx_held | fx_latched, word = (master & ((1U << MASTER_EFFECTS) - 1U)) | (fx_depth << 16) | (fx_rate << 24);
+    if (word != fx_sent) { fx_sent = word; fm1_master_fx(master & ((1U << MASTER_EFFECTS) - 1U), fx_depth, fx_rate); }
+    unsigned engine = (master >> FX_FREEZE) & 3U;
+    if (engine && !fx_engine) { uint8_t e[4]; groove_effects_get(e); fx_delay[0] = e[1]; fx_delay[1] = e[2]; }
+    if (engine != fx_engine || (engine & 2U)) {
+        uint8_t e[4];
+        groove_effects_get(e);
+        /* FREEZE: the delay feeds itself completely. WARP: its time lurches about. */
+        int feedback = (engine & 1U) ? 100 : fx_delay[1];
+        if (e[2] != feedback) groove_effects_edit(2, feedback - (int)e[2]);
+        if ((engine & 2U) && now - warp_at >= 70U) {
+            warp_at = now;
+            groove_effects_edit(1, (int)((now / 70U) % 9U) - 4);
+        } else if (!(engine & 2U) && fx_engine && e[1] != fx_delay[0]) groove_effects_edit(1, (int)fx_delay[0] - (int)e[1]);
+        fx_engine = engine;
+    }
 
     /* The loop. PLAY starts and stops it. REC records into it straight away,
      * starting it if it was stopped; REC held for three seconds empties it. */
@@ -1559,14 +1635,42 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         }
         return;
     }
-    if (pressed & BUTTON(LFO)) {
+    /* OP6+PIT+GLO together open and close Tide Blocks. */
+    if (block_chord) {
         if (!release_keys()) return;
+        blocked_keys = controls->keys;
         view_page = view_page == PAGE_GAME ? PAGE_KIT : PAGE_GAME;
         if (view_page == PAGE_GAME && (game_over || !game_random)) game_reset(now);
         game_fall_at = now;
     }
     if (view_page == PAGE_GAME) {
         game_control(controls, pressed, now);
+        return;
+    }
+    /* FX: a tap swaps the knobs to the effects, a hold opens the master FX window. */
+    if (pressed & BUTTON(FX)) { fx_since = now; fx_fired = 0; fx_down = 1; }
+    if (fx_down && !fx_fired && (controls->buttons & BUTTON(FX)) && now - fx_since >= 600U) {
+        fx_fired = 1;
+        if (!release_keys()) return;
+        blocked_keys = controls->keys;
+        view_page = view_page == PAGE_FX ? PAGE_KIT : PAGE_FX;
+        fx_held = 0;
+    }
+    if (fx_down && !(controls->buttons & BUTTON(FX))) {
+        fx_down = 0;
+        if (!fx_fired && view_page == PAGE_KIT) knob_bank = knob_bank == 1 ? 0 : 1;
+    }
+    if (view_page == PAGE_FX) {
+        if (pressed & BUTTON(HOME)) { view_page = PAGE_KIT; fx_held = 0; blocked_keys = controls->keys; return; }
+        uint32_t fx_keys = controls->keys & ~blocked_keys;
+        fx_held = 0;
+        for (unsigned i = 0; i < FX_TILES; ++i) {
+            if ((fx_keys >> white_keys[i]) & 1U) fx_held |= 1U << i;
+            static const uint8_t black[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
+            if (i < 11 && ((key_down & ~blocked_keys) >> black[i]) & 1U) fx_latched ^= 1U << i;
+        }
+        fx_depth = (unsigned)clamp((int)fx_depth + controls->encoders[2], 0, 15);
+        fx_rate = (unsigned)clamp((int)fx_rate + controls->encoders[3], 0, 15);
         return;
     }
     if (pressed & BUTTON(HOME)) {
@@ -1580,7 +1684,6 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         octave = clamp(octave + (pressed & BUTTON(OCT_UP) ? 1 : -1), -2, 2);
     }
     if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
-    if (pressed & BUTTON(FX)) knob_bank = knob_bank == 1 ? 0 : 1;
     /* ARP is note repeat for the drums: each tap steps through four rates,
      * then off. Holding ARP swaps the clock source. */
     if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
@@ -1661,7 +1764,9 @@ void groove_screen_init(void)
     drum = kit_ready = knob_bank = ble_was_linked = seeking = writing = armed = orbit_shown = 0;
     kit_retry = scene_at = splash_at = synth_retry = fm1_millis();
     view_page = PAGE_SPLASH;
-    glitch = smoke = smoke_shown = fx_applied = 0;
+    glitch = smoke = smoke_shown = fx_applied = fx_held = fx_latched = fx_engine = fx_down = 0;
+    fx_sent = ~0U;
+    intro = 1;
     synth_mode = 1;
     octave = 0;
     names_program = ~0U;

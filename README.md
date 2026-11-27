@@ -15,13 +15,14 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | HOME | Swap the keys between the synth and the drum kit. Drums: the first eight black keys or the first eight white keys are the pads (BD SD CH OH CP RS TM CR) |
 | OCT - / OCT + | Octave of the synth |
 | K1 to K4 | Synth: VOLUME, REVERB, DELAY, TEMPO. Drums: LEVEL, TUNE, DECAY of the last pad hit, TEMPO |
-| FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, FX LEVEL |
+| FX (tap) | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, FX LEVEL |
+| FX (hold) | Master FX window: twelve effects on the whole mix. White keys 1-12 hold an effect, black keys 1-11 latch it: crush, downsample, drive, fold, ring, chop, stutter, reverse, lowpass, highpass, freeze, warp. K1 DEPTH, K2 RATE. Latched effects stay on when you leave. Hold FX again or tap HOME to go back |
 | ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
 | OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high), always in the chosen scale, and pushes the smoke, and so the effects, somewhere new. Any key drops a coin above it. K1 SMOKE, K2 SCALE, K3 number of COINS, K4 SPEED. The same three keys, or HOME, leave |
 | OP4 + OP5 together | Knives: a spinning target darts round the wall and any key throws a knife from above it. A hit plays a note, a figure or, on a bullseye, a ten-note run with drums and a glitch, all in the scale; a miss gets a rim shot. K1 SMOKE, K2 SCALE, K3 target SIZE, K4 target SPEED |
 | ARP (tap) | Drum repeat: four rates, then off. A held pad retriggers in time |
 | ARP (hold) | Internal tempo or external MIDI clock |
-| LFO | Tide Blocks, a falling-block game (OCT moves, SEQ turns, REC drops) |
+| OP6 + PIT + GLO together | Tide Blocks, a falling-block game (OCT moves, SEQ turns, REC drops). The same three keys leave |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the sound settings (project slot 16; other slots are never written) |
 | MASTER | Output volume |
@@ -38,9 +39,13 @@ There are no numbers and no step grid on the main page. The loop is drawn as two
 
 The two games share one scale, chosen with K2: minor pentatonic, major pentatonic, Hijaz, Hijaz Kar, Kurd, Nahawand, Bayati, Rast and Saba, all from A. Bayati, Rast and Saba have half-flat degrees; while a game is open the synth track is retuned with the engine's per-note tuning (`groove_tuning_set`) so those degrees are a quarter tone flat, and it goes back to equal temperament when you leave.
 
-## Background picture
+## Master effects
 
-<https://tomagato.github.io/fm1_open/background.html> puts your own picture behind the top half of the screen. It is the back layer: the logo star, the e-cigarette, the stars, the smoke and the glitch all play over it. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The picture is kept in the last four sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
+The first ten master effects run in the app's own output stage (`app/audio_output.c`, `fm1_master_fx`), on the finished mix just before the master volume: stutter and reverse from a 186 ms memory, then drive, fold, crush, ring, downsample, chop, lowpass and highpass. Freeze and warp use the engine's delay: freeze sets its feedback to full, warp steps its time about. Both put the delay back as you had it when released.
+
+## Pictures
+
+<https://tomagato.github.io/fm1_open/background.html> sends two pictures: one behind the top half of the main screen (120 x 56) and one that replaces the target on the knife board (40 x 40, transfer commands 34 to 37). It is the back layer: the logo star, the e-cigarette, the stars, the smoke and the glitch all play over it. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The pictures are kept in the last five sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
 
 ## Install
 

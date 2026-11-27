@@ -332,16 +332,17 @@ enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
 enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
        GROOVE_LIBRARY_OFFSET = GROOVE_TUNING_OFFSET - 4 * 4096,
        GROOVE_SAMPLE_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET };
-/* Bitch909 player backdrop: header (16 B) and 120x56 little-endian RGB565
- * pixels in the last four sectors of the sample area. See background.c. */
-enum { GROOVE_BACKGROUND_W = 120, GROOVE_BACKGROUND_H = 56,
-       GROOVE_BACKGROUND_BYTES = 16 + GROOVE_BACKGROUND_W * GROOVE_BACKGROUND_H * 2,
-       GROOVE_BACKGROUND_OFFSET = GROOVE_LIBRARY_OFFSET - 4 * 4096 };
-const uint8_t *groove_background(void); /* pixel bytes, or NULL for the built-in scene */
-void groove_background_poll(void);
-int groove_background_write(unsigned offset, const uint8_t *data, unsigned bytes);
-int groove_background_finish(uint32_t crc);
-int groove_background_clear(void);
+/* Bitch909 player pictures: a 16 B header and little-endian RGB565 pixels.
+ * Slot 0 is the 120x56 backdrop in the last four sectors of the sample area,
+ * slot 1 the 40x40 knife-board target in the sector before. See background.c. */
+enum { GROOVE_PICTURES = 2, GROOVE_BACKGROUND_W = 120, GROOVE_BACKGROUND_H = 56, GROOVE_TARGET_SIZE = 40,
+       GROOVE_BACKGROUND_OFFSET = GROOVE_LIBRARY_OFFSET - 4 * 4096,
+       GROOVE_TARGET_OFFSET = GROOVE_BACKGROUND_OFFSET - 4096 };
+const uint8_t *groove_picture(unsigned slot); /* pixel bytes, or NULL for the built-in art */
+void groove_picture_poll(void);
+int groove_picture_write(unsigned slot, unsigned offset, const uint8_t *data, unsigned bytes);
+int groove_picture_finish(unsigned slot, uint32_t crc);
+int groove_picture_clear(unsigned slot);
 /* Finish any committed shared journal before starting a new transaction. */
 int groove_storage_prepare(void);
 void groove_samples_init(void);

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bitch909 · Background picture</title>
+<title>Bitch909 · Pictures</title>
 <style>
   :root { --ink:#0b0718; --panel:#17102e; --line:#3a2a66; --red:#e82430; --blue:#2882f0; --text:#f4ecf8; --dim:#b9a9cc; }
   * { box-sizing:border-box; }
@@ -18,6 +18,7 @@
   canvas { cursor:grab; touch-action:none; }
   canvas.dragging { cursor:grabbing; }
   input[type=range] { flex:1; min-width:160px; accent-color:var(--red); }
+  canvas.round { max-width:240px; aspect-ratio:1; border-radius:50%; }
   canvas { display:block; width:100%; max-width:480px; aspect-ratio:120/56; image-rendering:pixelated; background:#000; border:1px solid var(--line); }
   .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
   button,select,input[type=file] { font:inherit; color:var(--text); background:#0b0718; border:2px solid var(--line); padding:9px 14px; }
@@ -34,137 +35,70 @@
 </head>
 <body>
 <main>
-  <h1>BACKGROUND <span>PICTURE</span></h1>
-  <p>Put your own picture behind the Bitch909 screen. It is cut to the top half of the display, shrunk to 120 x 56 pixels and sent to the FM-1 over USB. It becomes the back layer: the logo star, the e-cigarette, the stars and the smoke play over it.</p>
-  <p class="dim">The picture is converted in this browser and goes only to your FM-1; it is not uploaded anywhere. Use Chrome or Edge on a computer. <a href="./">Back to Bitch909</a></p>
+  <h1>PICTURES <span>FOR BITCH909</span></h1>
+  <p>Put your own pictures on the FM-1: one behind the main screen, and one as the target on the knife board. Each is converted here and sent to the FM-1 over USB.</p>
+  <p class="dim">The pictures are converted in this browser and go only to your FM-1; they are not uploaded anywhere. Use Chrome or Edge on a computer. <a href="./">Back to Bitch909</a></p>
 
   <section>
-    <h2>1 · PICTURE</h2>
-    <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
-    <div class="row">
-      <label><input id="fit" type="checkbox" checked> Fill the screen (crop the edges)</label>
-    </div>
-    <p class="dim">Preview, as the FM-1 will show it. Drag to move the picture; scroll, pinch or use the slider to zoom.</p>
-    <canvas id="preview" width="120" height="56"></canvas>
-    <div class="row">
-      <label for="zoom">Zoom</label>
-      <input id="zoom" type="range" min="1" max="8" step="0.01" value="1">
-      <output id="zoomValue" for="zoom">1.0x</output>
-      <button id="reset" type="button">Reset</button>
-    </div>
-  </section>
-
-  <section>
-    <h2>2 · FM-1</h2>
+    <h2>FM-1</h2>
     <div class="row">
       <button id="connect">Connect FM-1</button>
       <select id="output" aria-label="MIDI output" disabled></select>
       <select id="input" aria-label="MIDI input" disabled></select>
     </div>
-    <div class="row">
-      <button id="send" class="primary" disabled>Send picture</button>
-      <button id="clear" disabled>Remove picture</button>
-    </div>
-    <progress id="progress" value="0" max="1" hidden></progress>
-    <p id="status" role="status">Choose a picture and connect the FM-1.</p>
-    <p class="dim">Close other FM-1 pages first if the FM-1 does not answer. The picture uses the last 16 KB of the sample area; a very large sample bank would replace it, and the built-in space scene then comes back.</p>
+    <p id="status" role="status">Connect the FM-1, then choose a picture below.</p>
+    <p class="dim">Close other FM-1 pages first if the FM-1 does not answer.</p>
   </section>
+
+  <section data-editor data-width="120" data-height="56" data-base="30" data-name="background">
+    <h2>BACKGROUND PICTURE</h2>
+    <p class="dim">Behind the top half of the main screen, 120 x 56 pixels. The logo star, the e-cigarette, the stars and the smoke play over it.</p>
+    <input data-file type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <div class="row"><label><input data-fit type="checkbox" checked> Fill the frame (crop the edges)</label></div>
+    <p class="dim">Preview, as the FM-1 will show it. Drag to move the picture; scroll, pinch or use the slider to zoom.</p>
+    <canvas data-canvas width="120" height="56"></canvas>
+    <div class="row">
+      <label>Zoom <input data-zoom type="range" min="1" max="8" step="0.01" value="1"></label>
+      <output data-zoom-value>1.0x</output>
+      <button data-reset type="button">Reset</button>
+    </div>
+    <div class="row">
+      <button data-send class="primary" disabled>Send background</button>
+      <button data-clear disabled>Remove background</button>
+    </div>
+    <progress data-progress value="0" max="1" hidden></progress>
+  </section>
+
+  <section data-editor data-width="40" data-height="40" data-base="34" data-name="target" data-round>
+    <h2>KNIFE TARGET PICTURE</h2>
+    <p class="dim">Replaces the dartboard in the knife game (OP4 + OP5), 40 x 40 pixels, cut to a circle. It still darts around, and knives still stick in it.</p>
+    <input data-file type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <div class="row"><label><input data-fit type="checkbox" checked> Fill the frame (crop the edges)</label></div>
+    <p class="dim">Preview. Drag to move the picture; scroll, pinch or use the slider to zoom.</p>
+    <canvas data-canvas class="round" width="40" height="40"></canvas>
+    <div class="row">
+      <label>Zoom <input data-zoom type="range" min="1" max="8" step="0.01" value="1"></label>
+      <output data-zoom-value>1.0x</output>
+      <button data-reset type="button">Reset</button>
+    </div>
+    <div class="row">
+      <button data-send class="primary" disabled>Send target</button>
+      <button data-clear disabled>Remove target</button>
+    </div>
+    <progress data-progress value="0" max="1" hidden></progress>
+  </section>
+  <p class="dim">The pictures use the last 20 KB of the sample area; a very large sample bank would replace them, and the built-in art then comes back.</p>
 </main>
 <script src="background.js"></script>
 <script>
 (() => {
   'use strict';
   const B = FM1Background, $ = id => document.getElementById(id);
-  const canvas = $('preview'), context = canvas.getContext('2d', { willReadFrequently: true });
-  let image = null, midi = null, fm = null, busy = false;
-  // View of the picture: zoom on top of the fit, and the picture's centre
-  // offset from the screen's centre, in screen pixels (120 x 56).
-  const view = { zoom: 1, x: 0, y: 0 };
+  let midi = null, connected = false, busy = false;
+  const editors = [];
 
   function say(text, bad) { $('status').textContent = text; $('status').className = bad ? 'bad' : ''; }
-  function refresh() {
-    $('send').disabled = busy || !image || !fm;
-    $('clear').disabled = busy || !fm;
-    $('connect').disabled = busy;
-  }
-  function draw() {
-    context.fillStyle = '#000';
-    context.fillRect(0, 0, B.WIDTH, B.HEIGHT);
-    if (!image) return;
-    const w = image.width * scale(), h = image.height * scale();
-    // Keep some of the picture on screen however far it is dragged.
-    view.x = Math.max(-(w + B.WIDTH) / 2 + 8, Math.min((w + B.WIDTH) / 2 - 8, view.x));
-    view.y = Math.max(-(h + B.HEIGHT) / 2 + 8, Math.min((h + B.HEIGHT) / 2 - 8, view.y));
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(image, (B.WIDTH - w) / 2 + view.x, (B.HEIGHT - h) / 2 + view.y, w, h);
-    $('zoom').value = view.zoom;
-    $('zoomValue').textContent = view.zoom.toFixed(1) + 'x';
-  }
-  function scale() {
-    if (!image) return 1;
-    return ($('fit').checked ? Math.max : Math.min)(B.WIDTH / image.width, B.HEIGHT / image.height) * view.zoom;
-  }
-  // Screen position (in 120 x 56 pixels) of a pointer or wheel event.
-  function point(event) {
-    const box = canvas.getBoundingClientRect();
-    return { x: (event.clientX - box.left) * B.WIDTH / box.width, y: (event.clientY - box.top) * B.HEIGHT / box.height };
-  }
-  // Zoom so that the picture stays put under the given screen point.
-  function zoomTo(zoom, at) {
-    const next = Math.max(1, Math.min(8, zoom)), ratio = next / view.zoom;
-    const cx = at.x - B.WIDTH / 2, cy = at.y - B.HEIGHT / 2;
-    view.x = cx - (cx - view.x) * ratio;
-    view.y = cy - (cy - view.y) * ratio;
-    view.zoom = next;
-    draw();
-  }
-  const pointers = new Map();
-  let pinch = 0;
-  canvas.addEventListener('pointerdown', event => {
-    if (!image) return;
-    canvas.setPointerCapture(event.pointerId);
-    pointers.set(event.pointerId, point(event));
-    pinch = 0;
-    canvas.classList.add('dragging');
-  });
-  canvas.addEventListener('pointermove', event => {
-    const before = pointers.get(event.pointerId);
-    if (!before) return;
-    const now = point(event);
-    pointers.set(event.pointerId, now);
-    if (pointers.size === 1) {
-      view.x += now.x - before.x;
-      view.y += now.y - before.y;
-      draw();
-    } else if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()], spread = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch) zoomTo(view.zoom * spread / pinch, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-      pinch = spread;
-    }
-  });
-  const release = event => {
-    pointers.delete(event.pointerId);
-    pinch = 0;
-    if (!pointers.size) canvas.classList.remove('dragging');
-  };
-  canvas.addEventListener('pointerup', release);
-  canvas.addEventListener('pointercancel', release);
-  canvas.addEventListener('wheel', event => {
-    if (!image) return;
-    event.preventDefault();
-    zoomTo(view.zoom * Math.exp(-event.deltaY * 0.0015), point(event));
-  }, { passive: false });
-  $('zoom').oninput = () => zoomTo(+$('zoom').value, { x: B.WIDTH / 2, y: B.HEIGHT / 2 });
-  $('reset').onclick = () => { view.zoom = 1; view.x = view.y = 0; draw(); };
-  $('file').onchange = async () => {
-    const file = $('file').files[0];
-    if (!file) return;
-    try { image = await createImageBitmap(file); view.zoom = 1; view.x = view.y = 0; draw(); say('Picture ready. Drag and zoom to frame it.'); }
-    catch { image = null; draw(); say('That file could not be read as a picture.', true); }
-    refresh();
-  };
-  $('fit').onchange = draw;
-
+  function refresh() { $('connect').disabled = busy; editors.forEach(e => e.refresh()); }
   function ports(select, list, pick) {
     select.innerHTML = '';
     for (const port of list) select.add(new Option(port.name || port.id, port.id));
@@ -188,33 +122,111 @@
       attempt();
     });
   }
-  async function work(label, task) {
+  async function work(label, task, progress) {
     busy = true; refresh(); say(label);
     try { await task(); } catch (error) { say(error.message, true); }
-    busy = false; $('progress').hidden = true; refresh();
+    busy = false; if (progress) progress.hidden = true; refresh();
   }
   $('connect').onclick = () => work('Connecting…', async () => {
     if (!navigator.requestMIDIAccess) throw Error('This browser has no Web MIDI. Use Chrome or Edge on a computer.');
     midi = await navigator.requestMIDIAccess({ sysex: true });
     ports($('output'), [...midi.outputs.values()], $('output').value);
     ports($('input'), [...midi.inputs.values()], $('input').value);
-    fm = null;
-    const candidate = B.client(request), state = await candidate.state();
-    fm = candidate;
-    say(state.picture ? 'FM-1 connected. It is showing a picture now.' : 'FM-1 connected. It is showing the built-in scene.');
+    connected = false;
+    const shown = [];
+    for (const e of editors) if ((await e.fm.state()).picture) shown.push(e.name);
+    connected = true;
+    say('FM-1 connected. ' + (shown.length ? 'It has your ' + shown.join(' and ') + ' picture.' : 'It is using the built-in art.'));
   });
-  $('send').onclick = () => work('Sending…', async () => {
+
+  // One picture editor: file, drag and zoom, send and remove.
+  function editor(section) {
+    const part = name => section.querySelector('[data-' + name + ']');
+    const W = +section.dataset.width, H = +section.dataset.height, name = section.dataset.name;
+    const canvas = part('canvas'), context = canvas.getContext('2d', { willReadFrequently: true });
+    const fm = B.client(request, +section.dataset.base);
+    const view = { zoom: 1, x: 0, y: 0 };
+    let image = null;
+    const scale = () => !image ? 1 : (part('fit').checked ? Math.max : Math.min)(W / image.width, H / image.height) * view.zoom;
+    function draw() {
+      context.fillStyle = '#000';
+      context.fillRect(0, 0, W, H);
+      if (!image) return;
+      const w = image.width * scale(), h = image.height * scale();
+      // Keep some of the picture in the frame however far it is dragged.
+      view.x = Math.max(-(w + W) / 2 + 4, Math.min((w + W) / 2 - 4, view.x));
+      view.y = Math.max(-(h + H) / 2 + 4, Math.min((h + H) / 2 - 4, view.y));
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, (W - w) / 2 + view.x, (H - h) / 2 + view.y, w, h);
+      part('zoom').value = view.zoom;
+      part('zoom-value').textContent = view.zoom.toFixed(1) + 'x';
+    }
+    const point = event => {
+      const box = canvas.getBoundingClientRect();
+      return { x: (event.clientX - box.left) * W / box.width, y: (event.clientY - box.top) * H / box.height };
+    };
+    function zoomTo(zoom, at) {
+      const next = Math.max(1, Math.min(8, zoom)), ratio = next / view.zoom, cx = at.x - W / 2, cy = at.y - H / 2;
+      view.x = cx - (cx - view.x) * ratio;
+      view.y = cy - (cy - view.y) * ratio;
+      view.zoom = next;
+      draw();
+    }
+    const pointers = new Map();
+    let pinch = 0;
+    canvas.addEventListener('pointerdown', event => {
+      if (!image) return;
+      canvas.setPointerCapture(event.pointerId);
+      pointers.set(event.pointerId, point(event));
+      pinch = 0;
+      canvas.classList.add('dragging');
+    });
+    canvas.addEventListener('pointermove', event => {
+      const before = pointers.get(event.pointerId);
+      if (!before) return;
+      const now = point(event);
+      pointers.set(event.pointerId, now);
+      if (pointers.size === 1) { view.x += now.x - before.x; view.y += now.y - before.y; draw(); }
+      else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()], spread = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinch) zoomTo(view.zoom * spread / pinch, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        pinch = spread;
+      }
+    });
+    const release = event => { pointers.delete(event.pointerId); pinch = 0; if (!pointers.size) canvas.classList.remove('dragging'); };
+    canvas.addEventListener('pointerup', release);
+    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('wheel', event => {
+      if (!image) return;
+      event.preventDefault();
+      zoomTo(view.zoom * Math.exp(-event.deltaY * 0.0015), point(event));
+    }, { passive: false });
+    part('zoom').oninput = () => zoomTo(+part('zoom').value, { x: W / 2, y: H / 2 });
+    part('reset').onclick = () => { view.zoom = 1; view.x = view.y = 0; draw(); };
+    part('fit').onchange = draw;
+    part('file').onchange = async () => {
+      const file = part('file').files[0];
+      if (!file) return;
+      try { image = await createImageBitmap(file); view.zoom = 1; view.x = view.y = 0; draw(); say('Picture ready. Drag and zoom to frame it.'); }
+      catch { image = null; draw(); say('That file could not be read as a picture.', true); }
+      refresh();
+    };
+    part('send').onclick = () => work('Sending the ' + name + '…', async () => {
+      draw();
+      const blob = B.buildBlob(context.getImageData(0, 0, W, H).data, W, H);
+      part('progress').hidden = false; part('progress').value = 0;
+      await fm.send(blob, done => { part('progress').value = done; });
+      say('Sent. The ' + name + ' picture is on the FM-1 and stays after a restart.');
+    }, part('progress'));
+    part('clear').onclick = () => work('Removing the ' + name + '…', async () => {
+      await fm.clear();
+      say('Removed. The FM-1 is back to its built-in ' + name + '.');
+    });
     draw();
-    const blob = B.buildBlob(context.getImageData(0, 0, B.WIDTH, B.HEIGHT).data);
-    $('progress').hidden = false; $('progress').value = 0;
-    await fm.send(blob, done => { $('progress').value = done; });
-    say('Sent. The picture is on the FM-1 screen and stays after a restart.');
-  });
-  $('clear').onclick = () => work('Removing…', async () => {
-    await fm.clear();
-    say('Removed. The FM-1 is back to the built-in scene.');
-  });
-  draw(); refresh();
+    return { name, fm, refresh() { part('send').disabled = busy || !image || !connected; part('clear').disabled = busy || !connected; } };
+  }
+  document.querySelectorAll('[data-editor]').forEach(section => editors.push(editor(section)));
+  refresh();
 })();
 </script>
 </body>

@@ -3,7 +3,7 @@
 // keeps, and send it with the FM1 transfer protocol (see app/transfer.c).
 (function (root) {
   'use strict';
-  const WIDTH = 120, HEIGHT = 56, CHUNK = 64;
+  const WIDTH = 120, HEIGHT = 56, TARGET = 40, CHUNK = 64;
 
   const table = new Uint32Array(256).map((_, n) => {
     let v = n;
@@ -15,17 +15,18 @@
     for (const b of bytes) v = table[(v ^ b) & 255] ^ (v >>> 8);
     return ~v >>> 0;
   }
-  // rgba: WIDTH * HEIGHT * 4 bytes. Returns header + little-endian RGB565 pixels.
-  function buildBlob(rgba) {
-    if (rgba.length !== WIDTH * HEIGHT * 4) throw Error('Picture must be 120 x 56 pixels');
-    const blob = new Uint8Array(16 + WIDTH * HEIGHT * 2), view = new DataView(blob.buffer);
-    for (let i = 0; i < WIDTH * HEIGHT; i++) {
+  // rgba: width * height * 4 bytes. Returns header + little-endian RGB565 pixels.
+  // The backdrop is 120 x 56; the knife target is 40 x 40.
+  function buildBlob(rgba, width = WIDTH, height = HEIGHT) {
+    if (rgba.length !== width * height * 4) throw Error('Picture must be ' + width + ' x ' + height + ' pixels');
+    const blob = new Uint8Array(16 + width * height * 2), view = new DataView(blob.buffer);
+    for (let i = 0; i < width * height; i++) {
       const color = (rgba[i * 4] >> 3) << 11 | (rgba[i * 4 + 1] >> 2) << 5 | rgba[i * 4 + 2] >> 3;
       view.setUint16(16 + i * 2, color, true);
     }
     blob.set([0x42, 0x47, 0x30, 0x39]); // "BG09"
-    view.setUint16(4, WIDTH, true);
-    view.setUint16(6, HEIGHT, true);
+    view.setUint16(4, width, true);
+    view.setUint16(6, height, true);
     view.setUint32(8, crc32(blob.subarray(16)), true);
     view.setUint32(12, 0xffffffff, true); // the device commits after its own check
     return blob;
@@ -61,7 +62,8 @@
     return { status: bytes[0], data: Uint8Array.from(bytes.slice(1)) };
   }
   // `request(frameBytes, cmd, token)` resolves with the parsed reply or rejects.
-  function client(request) {
+  // `base` is the first of the four commands: 30 for the backdrop, 34 for the target.
+  function client(request, base = 30) {
     let token = Math.floor(Math.random() * 16384);
     async function call(cmd, data) {
       token = (token + 1) & 16383;
@@ -71,16 +73,16 @@
       return reply.data;
     }
     return {
-      async state() { const d = await call(30, []); return { picture: !!d[0], width: d[1], height: d[2] }; },
+      async state() { const d = await call(base, []); return { picture: !!d[0], width: d[1], height: d[2] }; },
       async send(blob, progress) {
         for (let at = 0; at < blob.length; at += CHUNK) {
-          await call(31, [at & 255, at >> 8, ...blob.subarray(at, at + CHUNK)]);
+          await call(base + 1, [at & 255, at >> 8, ...blob.subarray(at, at + CHUNK)]);
           if (progress) progress(Math.min(1, (at + CHUNK) / blob.length));
         }
-        await call(32, Array.from(blob.subarray(8, 12)));
+        await call(base + 2, Array.from(blob.subarray(8, 12)));
       },
-      async clear() { await call(33, []); }
+      async clear() { await call(base + 3, []); }
     };
   }
-  root.FM1Background = { WIDTH, HEIGHT, crc32, buildBlob, frame, parse, client };
+  root.FM1Background = { WIDTH, HEIGHT, TARGET, crc32, buildBlob, frame, parse, client };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
