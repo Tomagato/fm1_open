@@ -124,8 +124,8 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         }
     }
 }
-/* One page and no sequencer: the keys play a DX7 on track 1, or (HOME) the
- * drum kit on track 8. All drawing and edits run on the control task. */
+/* One page: the keys play a DX7 on track 1, or (HOME) the drum kit on track 8.
+ * REC loops what is played; the loop has no grid, only orbits round the star. All drawing and edits run on the control task. */
 #include "beach_scene.inc"
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
@@ -143,6 +143,12 @@ static const char kit_name[] = "BEACH 909";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, GAME_W = 8, GAME_H = 14 };
 
 static unsigned drum;
+/* The loop: REC records what is played into a four-bar loop on the track the
+ * keys are on. There is no grid; the loop is drawn as orbits around the star. */
+static unsigned writing, armed, rec_fired, orbit_shown;
+static uint32_t rec_since;
+static struct groove_view frame_loop[2]; /* kit, synth */
+static const int8_t orbit_sine[64] = {0,12,25,37,49,60,71,81,90,98,106,112,117,122,125,126,127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12,0,-12,-25,-37,-49,-60,-71,-81,-90,-98,-106,-112,-117,-122,-125,-126,-127,-126,-125,-122,-117,-112,-106,-98,-90,-81,-71,-60,-49,-37,-25,-12};
 static unsigned kit_ready, knob_bank, ble_was_linked;
 static uint32_t kit_retry, scene_at, glo_since, seek_until, seek_at, pulse_until;
 static unsigned glo_fired, seeking, arp_fired, frame_repeat;
@@ -379,8 +385,8 @@ static const char *drum_title(unsigned pad)
 static void status_draw(void)
 {
     if (paint_rendering && (paint_top >= 128 || paint_top + PAINT_ROWS <= 112)) return;
-    unsigned sounding = led_cache != 0;
-    const unsigned state[] = {frame_radar[RADAR_TEMPO], scene_pulse, synth_mode, frame_synth.program, (unsigned)(octave + 2),
+    unsigned sounding = led_cache != 0, recording = writing || (armed && ((frame_time / 250U) & 1U));
+    const unsigned state[] = {recording, frame_radar[RADAR_TEMPO], scene_pulse, synth_mode, frame_synth.program, (unsigned)(octave + 2),
                               drum, sounding, frame_view.clock_mode, frame_dirty};
     uint32_t sig = signature(signature(5381, state, sizeof state), frame_voice, sizeof frame_voice);
     if (sig == cache->status) return;
@@ -401,7 +407,8 @@ static void status_draw(void)
     /* Tempo is a bar, not a figure: longer is faster. */
     paint_fill(164, 117, 62, 6, INK);
     paint_fill(164, 117, frame_radar[RADAR_TEMPO] * 62U / 100U, 6, frame_view.clock_mode ? AMBER : TEXT);
-    if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
+    if (recording) paint_fill(230, 116, 7, 7, RED);
+    else if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
 }
 /* Left of the radar: the preset list while the keys play the synth, eight
  * pads while they play the drums. */
@@ -642,7 +649,7 @@ static void hint_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 231) return;
     const char *line = notice ? notice : frame_samples != 2 && !synth_mode ? "NO SAMPLES: WRITE THE KIT FROM THE WEB"
-        : synth_mode ? "PLAY/REC:PRESET HOME:DRUMS ENV:VAPE" : "HOME:SYNTH ARP:REPEAT ENV:VAPE LFO:GAME";
+        : synth_mode ? "REC:LOOP SCL/SEQ:PRESET HOME:DRUMS" : "REC:LOOP HOME:SYNTH ARP:REPEAT ENV:VAPE";
     uint32_t sig = signature(notice != NULL, line, (unsigned)strlen(line));
     if (sig == cache->hint) return;
     cache->hint = sig;
@@ -734,6 +741,32 @@ static void game_draw(void)
             paint_fill(88 + column * 8, 116 + row * 8, 7, 7, board[row][column] ? lane_color[board[row][column] - 1U] : INK);
         }
 }
+/* The loop as two orbits around the star: drums on the inner one, the synth on
+ * the outer. Every recorded step is a moon; a comet runs round as it plays.
+ * Band painter only, over the finished scene. */
+static void orbit_draw(void)
+{
+    if (paint_top >= SCENE_ROWS) return;
+    for (unsigned ring = 0; ring < 2; ++ring) {
+        const struct groove_view *v = &frame_loop[ring];
+        unsigned length = v->sequence_length ? v->sequence_length : 64U;
+        int rx = ring ? 34 : 25, ry = ring ? 17 : 11;
+        for (unsigned step = 0; step < length; ++step) {
+            unsigned angle = step * 64U / length, on = (unsigned)(v->active_steps >> step) & 1U;
+            unsigned behind = v->playing ? (v->play_step + length - step) % length : length;
+            unsigned head = !behind, tail = behind > 0 && behind < 5, size = head ? 4 : on ? 3 : tail ? 2 : 1;
+            if (!on && !head && !tail && (step & 1U)) continue;
+            int x = (BEACH_SUN_X + rx * orbit_sine[angle] / 127) * 2, y = (BEACH_SUN_Y - ry * orbit_sine[(angle + 16U) & 63U] / 127) * 2;
+            uint16_t color = head ? (on ? TEXT : lane_color[7]) : on ? lane_color[ring ? 2 : 0]
+                           : tail ? (behind < 3 ? lane_color[4] : BEACH_RGB(70, 110, 190))
+                           : writing ? BEACH_RGB(190, 36, 60) : BEACH_RGB(110, 100, 180);
+            for (unsigned i = 0; i < size * size * 4U; ++i)
+                plot(x - (int)size + 1 + (int)(i % (size * 2U)), y - (int)size + 1 + (int)(i / (size * 2U)), color);
+            if (head && on) /* a played moon flares */
+                for (int k = -9; k <= 9; ++k) { plot(x + k, y, TEXT); plot(x, y + k, TEXT); plot(x + k * 2 / 3, y + k * 2 / 3, TEXT); plot(x + k * 2 / 3, y - k * 2 / 3, TEXT); }
+        }
+    }
+}
 static void draw_page(void)
 {
     if (cache->shown != view_page) {
@@ -768,7 +801,7 @@ static void leds(void)
     led_cache = bits;
     bits = ((octave < 0) << OCT_DOWN) | ((octave > 0) << OCT_UP) | ((knob_bank == 1) << FX) | (synth_mode << HOME)
         | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP)
-        | (1U << PLAY) | (1U << REC);
+        | ((frame_view.playing != 0) << PLAY) | ((writing || (armed && ((frame_time / 250U) & 1U))) << REC);
     changed = bits ^ button_led_cache;
     for (unsigned key = 0; key < 14; ++key)
         if (changed & (1U << key)) fm1_led_set(key, (bits >> key) & 1U);
@@ -812,6 +845,8 @@ static void draw(void)
     frame_radar[RADAR_SMOKE] = (uint8_t)smoke;
     frame_radar[RADAR_SYNTH] = (uint8_t)(frame_synth.volume * 100U / 127U);
     frame_dirty = groove_project_dirty() != 0;
+    frame_loop[0] = frame_view;
+    frame_loop[1] = frame_synth;
     /* The stars drift slowly; the red star swells with every note played. */
     if (frame_time - scene_at >= 220U) {
         scene_at = frame_time;
@@ -836,6 +871,14 @@ static void draw(void)
     unsigned drifting = smoke | (scene_phase << 8);
     if ((smoke || smoke_shown) && drifting != smoke_shown) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
     smoke_shown = smoke ? drifting : 0;
+    /* The orbits move with the loop, faster than the sky drifts. */
+    const uint32_t loop[] = {frame_view.playing ? frame_view.play_step + 1U : 0U, writing,
+                             (uint32_t)frame_view.active_steps, (uint32_t)(frame_view.active_steps >> 32),
+                             (uint32_t)frame_synth.active_steps, (uint32_t)(frame_synth.active_steps >> 32)};
+    unsigned orbit = signature(7, loop, sizeof loop);
+    if (orbit != orbit_shown && view_page == PAGE_KIT) paint_mark(74, 0, 166, 86);
+    orbit_shown = orbit;
+    if (frame_view.playing && !frame_view.play_step && loop[0] && !glitch) { glitch = 1U + (frame_time & 255U); glitch_until = frame_time + 70U; }
     leds();
 }
 static void paint_flush(void)
@@ -865,6 +908,7 @@ static void paint_flush(void)
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
         draw_page();
+        if (view_page == PAGE_KIT) orbit_draw();
         if (smoke) smoke_draw();
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
@@ -915,13 +959,19 @@ static void kit_prepare(uint32_t now)
         if (!kit_ready) {
             kit_ready = 1;
             drum = 0;
-            /* There is no sequencer here: stop it and empty any pattern an
-             * earlier build saved, so nothing plays by itself. */
-            struct groove_view transport = {0};
-            groove_get_view(KIT, 0, &transport);
-            if (transport.playing) (void)post(0xfc, 0, 0, 1);
+            writing = armed = 0;
             groove_edit_record(0, KIT, 0);
-            for (unsigned pad = 0; pad < 8; ++pad) clear_lane(pad);
+            /* Four-bar loops on both tracks, and everything soaked: both sends
+             * full on the drums and the synth, long reverb, delay close to
+             * self-oscillation, effects return full. The knobs can pull it back. */
+            groove_sequence_length_set(KIT, GROOVE_STEPS);
+            groove_sequence_length_set(SYNTH, GROOVE_STEPS);
+            uint8_t effects[4];
+            groove_effects_get(effects);
+            for (unsigned i = 0; i < 4; ++i) groove_sends_edit(i < 2 ? KIT : SYNTH, i & 1U, 15);
+            groove_effects_edit(0, 127);
+            groove_effects_edit(2, FX_FEEDBACK_TOP - (int)effects[2]);
+            groove_effects_edit(3, 127);
         }
         /* Settings left by other firmware must not silence the kit. */
         if (groove_track_role(KIT) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(KIT, GROOVE_TRACK_NORMAL);
@@ -1233,12 +1283,39 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
         view_page = PAGE_KIT;
     }
-    /* Presets are always one move away: PLAY is next, REC is previous, and the
+    /* Presets are always one move away: SEQ is next, SCL is previous, and the
      * three outer encoders scroll the list. */
-    int preset = controls->encoders[0] + controls->encoders[1] + controls->encoders[6] +
-                 ((pressed >> PLAY) & 1) - (view_page == PAGE_GAME ? 0 : (int)((pressed >> REC) & 1));
+    int preset = controls->encoders[0] + controls->encoders[1] + controls->encoders[6];
+    if (view_page != PAGE_GAME) preset += (int)((pressed >> SEQ) & 1) - (int)((pressed >> SCL) & 1);
     if (preset) groove_control_edit(SYNTH, preset, 0, 0);
     if (smoke != fx_applied) fx_apply(smoke);
+
+    /* The loop. PLAY starts and stops it. REC records into it straight away,
+     * starting it if it was stopped; REC held for three seconds empties it. */
+    unsigned loop_track = synth_mode ? SYNTH : KIT;
+    writing = groove_edit_recording();
+    if (pressed & BUTTON(PLAY)) {
+        if (!post(view.playing ? 0xfc : 0xfa, 0, 0, 1)) return;
+        if (view.playing) armed = 0;
+    }
+    if ((pressed & BUTTON(REC)) && view_page != PAGE_GAME) {
+        rec_since = now;
+        rec_fired = 0;
+        if (writing || armed) { writing = armed = 0; say("LOOP KEPT - PLAYING", now, 1200); }
+        else if (view.playing) { writing = 1; say("RECORDING", now, 1200); }
+        else if (post(0xfa, 0, 0, 1)) { armed = 1; say("RECORDING", now, 1200); }
+    }
+    if ((controls->buttons & BUTTON(REC)) && !rec_fired && view_page != PAGE_GAME && now - rec_since >= 3000U) {
+        rec_fired = 1;
+        writing = armed = 0;
+        groove_edit_record(0, loop_track, 0);
+        (void)groove_edit_clear(KIT, 0, 2);
+        (void)groove_edit_clear(SYNTH, 0, 2);
+        say("EVERYTHING DELETED", now, 2000);
+    }
+    if (armed && view.playing) { armed = 0; writing = 1; }
+    else if (writing && !view.playing && !armed) writing = 0;
+    groove_edit_record(writing, loop_track, 0);
 
     /* OP1+OP2+OP3 together open and close the coin pusher. */
     if (chord || (view_page == PAGE_COINS && (pressed & BUTTON(HOME)))) {
@@ -1284,7 +1361,6 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     }
     if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
     if (pressed & BUTTON(FX)) knob_bank = knob_bank == 1 ? 0 : 1;
-    if (pressed & BUTTON(SEQ)) groove_screen_tap(now);
     /* ARP is note repeat for the drums: each tap steps through four rates,
      * then off. Holding ARP swaps the clock source. */
     if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
@@ -1362,7 +1438,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
 }
 void groove_screen_init(void)
 {
-    drum = kit_ready = knob_bank = ble_was_linked = seeking = 0;
+    drum = kit_ready = knob_bank = ble_was_linked = seeking = writing = armed = orbit_shown = 0;
     kit_retry = scene_at = splash_at = synth_retry = fm1_millis();
     view_page = PAGE_SPLASH;
     glitch = smoke = smoke_shown = fx_applied = 0;
@@ -1426,10 +1502,15 @@ void groove_screen_control(void)
     }
     paint_flush();
 }
-/* There is no sequencer to start or stop: MIDI Machine Control is ignored. */
 void groove_screen_mmc(unsigned command)
 {
-    (void)command;
+    unsigned transport = command == 1 || command == 9 ? 0xfc :
+                         command == 2 || command == 3 || command == 6 ? 0xfb : 0;
+    if (!transport && command != 7) return;
+    writing = command == 6;
+    armed = 0;
+    groove_edit_record(writing, synth_mode ? SYNTH : KIT, 0);
+    if (transport) (void)post((uint8_t)transport, 0, 0, 1);
 }
 #ifdef FM1_HOST_TEST
 /* Browser preview hooks. The workbench page is shared with FM1 Open, so its

@@ -218,19 +218,18 @@ const char *groove_factory_name(unsigned index)
  * hat, open hat. Track 1 is a DX7 for the keys; the other six stay empty and muted. */
 static int beach_build(struct groove_project *p)
 {
-    static const struct part empty = {GROOVE_PSG,LEAD,0,100,0}, kit = {GROOVE_SAMPLE,BEAT,0,100,2},
-        synth = {GROOVE_DX7,KEYS,ELECTRIC,96,4 + 16 * 2};
+    static const struct part empty = {GROOVE_PSG,LEAD,0,100,0}, kit = {GROOVE_SAMPLE,BEAT,0,100,15 + 16 * 15},
+        synth = {GROOVE_DX7,KEYS,ELECTRIC,96,15 + 16 * 15};
     static const uint16_t lanes[SAMPLE_DRUM_PADS] = {0}; /* played live: no pattern */
     static const uint8_t levels[SAMPLE_DRUM_PADS] = {112,98,80,90,94,72,70,74};
     memset(p, 0, sizeof *p);
     memcpy(p->name, "BEACH 909   ", sizeof p->name);
     p->tempo = 124; p->mute = 0x7e;
-    p->effects[0] = 52; p->effects[1] = 135; p->effects[2] = 38; p->effects[3] = 76;
+    p->effects[0] = 98; p->effects[1] = 135; p->effects[2] = 85; p->effects[3] = 100;
     groove_sequence_defaults(&p->sequence);
     groove_project_arp_defaults(p);
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) preset(&p->preset[t], t == 7 ? &kit : t == 0 ? &synth : &empty);
     struct groove_preset *drums = &p->preset[7];
-    drums->sequence_pages = 1;
     for (unsigned pad = 0; pad < SAMPLE_DRUM_PADS; ++pad) {
         uint8_t *pot = drums->data + pad * SAMPLE_DRUM_PARAMS;
         pot[SAMPLE_DRUM_LEVEL] = levels[pad];
