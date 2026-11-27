@@ -102,3 +102,33 @@ jobs:
           name: fm1-preview
           if-no-files-found: error
           path: build/preview/index.html
+
+  pages:
+    needs: firmware
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: fm1-workbench
+          path: site
+      - uses: actions/download-artifact@v4
+        with:
+          name: fm1-firmware
+          path: firmware
+      - name: Assemble site
+        run: |
+          cp site/FM1-Official-Open-Source.html site/index.html
+          cp firmware/generated/FM1_OFFICIAL_OPEN.fwsc site/
+          touch site/.nojekyll
+          (cd site && sha256sum index.html FM1_OFFICIAL_OPEN.fwsc >> SHA256SUMS.txt)
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

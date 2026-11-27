@@ -25,7 +25,7 @@ The kit also answers MIDI notes on channel 10.
 ## Install
 
 1. Back up projects and samples with the workbench you already use.
-2. Open the Beach 909 workbench page (`FM1-Official-Open-Source.html` from the `fm1-workbench` build artifact) from HTTPS or `localhost` in Chrome or Edge, connect the FM-1 over USB and update.
+2. Open the Beach 909 workbench page, <https://tomagato.github.io/fm1_open/>, in Chrome or Edge, connect the FM-1 over USB and update. The page is published by the build workflow; the same file is in the `fm1-workbench` build artifact and also works from `localhost`.
 3. On the page's sample tab, load the built-in samples and write them to the device. This replaces the sample bank on the device with the 909 kit; until then the screen shows `NO SAMPLES` or plays the samples that are already there.
 
 The same page restores the original M-VAVE V15 firmware (`sdk/firmware/FM-1_015.fwsc`). This build has not been validated on hardware by its author; use it at your own risk.
