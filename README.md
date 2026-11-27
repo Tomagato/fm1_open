@@ -44,7 +44,7 @@ The first ten master effects run in the app's own output stage (`app/audio_outpu
 
 ## Pictures
 
-<https://tomagato.github.io/fm1_open/background.html> sends two pictures: one behind the top half of the main screen (120 x 56) and one that replaces the target on the knife board (40 x 40, transfer commands 34 to 37). It is the back layer: the logo star, the e-cigarette, the stars, the smoke and the glitch all play over it. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The pictures are kept in the last five sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
+<https://tomagato.github.io/fm1_open/background.html> sends two pictures: one behind the top half of the main screen (120 x 56) one that replaces the target on the knife board (40 x 40, transfer commands 34 to 37), and one that is thrown at it instead of a knife (16 x 16, commands 38 to 41). It is the back layer: the logo star, the e-cigarette, the stars, the smoke and the glitch all play over it. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The pictures are kept in the last six sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
 
 ## Install
 

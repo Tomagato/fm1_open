@@ -185,7 +185,7 @@ enum { BLADES = 4, STUCK = 6 };
 static struct { int16_t x, y; uint8_t live; } blades[BLADES];
 static struct { int8_t x, y; } stuck[STUCK];
 static unsigned stuck_count, knife_a, knife_b, knife_flash, knife_size = 14;
-static const uint8_t *target_picture;
+static const uint8_t *target_picture, *throw_picture;
 /* Master FX window (hold FX): twelve effects on the whole mix. White keys hold
  * one while pressed, black keys latch it. The first ten run in the audio
  * output stage; FREEZE and WARP lean on the delay. */
@@ -608,7 +608,15 @@ static uint16_t knife_pixel(int x, int y)
 {
     for (unsigned i = 0; i < BLADES; ++i) {
         int dx = x - blades[i].x, dy = y - blades[i].y;
-        if (!blades[i].live || dy < 0 || dy > 15 || dx < -1 || dx > 1) continue;
+        if (!blades[i].live) continue;
+        if (throw_picture) {
+            /* The player's picture flies instead of a knife, cut to a disc. */
+            int px = dx + GROOVE_THROW_SIZE / 2, py = dy, rx = dx * 2 + 1, ry = (dy - GROOVE_THROW_SIZE / 2) * 2 + 1;
+            if (px < 0 || px >= GROOVE_THROW_SIZE || py < 0 || py >= GROOVE_THROW_SIZE || rx * rx + ry * ry > 16 * 16) continue;
+            const uint8_t *pixel = throw_picture + ((unsigned)py * GROOVE_THROW_SIZE + (unsigned)px) * 2U;
+            return (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
+        }
+        if (dy < 0 || dy > 15 || dx < -1 || dx > 1) continue;
         if (dy < 10) { if (dx == 0 || (dy > 2 && dx == -1)) return dx ? BEACH_RGB(150, 160, 186) : BEACH_RGB(236, 240, 250); }
         else if (dy == 10) return BEACH_RGB(255, 206, 110);
         else return dx ? BEACH_RGB(120, 16, 30) : BEACH_RGB(232, 36, 48);
@@ -618,6 +626,14 @@ static uint16_t knife_pixel(int x, int y)
     int dx = x - tx, dy = y - ty, d = dx * dx + dy * dy;
     for (unsigned i = 0; i < stuck_count; ++i) { /* handles of the knives already in it */
         int hx = dx - stuck[i].x, hy = dy - stuck[i].y;
+        if (throw_picture) {
+            /* What has stuck in the board is a small copy of the picture. */
+            if (hx >= -3 && hx <= 3 && hy >= -3 && hy <= 3 && hx * hx + hy * hy <= 10) {
+                const uint8_t *pixel = throw_picture + ((unsigned)((hy + 3) * 16 / 7) * GROOVE_THROW_SIZE + (unsigned)((hx + 3) * 16 / 7)) * 2U;
+                return (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
+            }
+            continue;
+        }
         if (hx >= -1 && hx <= 0 && hy >= 0 && hy <= 6) return hy == 0 ? BEACH_RGB(255, 206, 110) : BEACH_RGB(232, 36, 48);
     }
     if (d <= r * r && target_picture) {
@@ -743,6 +759,7 @@ static void draw(void)
     groove_picture_poll();
     scene_picture = groove_picture(0);
     target_picture = groove_picture(1);
+    throw_picture = groove_picture(2);
     frame_repeat = groove_arp_enabled(KIT) != 0;
     groove_get_view(SYNTH, 0, &frame_synth);
     groove_sends_get(SYNTH, frame_synth_sends);

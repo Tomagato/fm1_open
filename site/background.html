@@ -18,6 +18,7 @@
   canvas { cursor:grab; touch-action:none; }
   canvas.dragging { cursor:grabbing; }
   input[type=range] { flex:1; min-width:160px; accent-color:var(--red); }
+  canvas.small { max-width:128px; }
   canvas.round { max-width:240px; aspect-ratio:1; border-radius:50%; }
   canvas { display:block; width:100%; max-width:480px; aspect-ratio:120/56; image-rendering:pixelated; background:#000; border:1px solid var(--line); }
   .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
@@ -36,7 +37,7 @@
 <body>
 <main>
   <h1>PICTURES <span>FOR BITCH909</span></h1>
-  <p>Put your own pictures on the FM-1: one behind the main screen, and one as the target on the knife board. Each is converted here and sent to the FM-1 over USB.</p>
+  <p>Put your own pictures on the FM-1: one behind the main screen, one as the target on the knife board, and one to throw at it. Each is converted here and sent to the FM-1 over USB.</p>
   <p class="dim">The pictures are converted in this browser and go only to your FM-1; they are not uploaded anywhere. Use Chrome or Edge on a computer. <a href="./">Back to Bitch909</a></p>
 
   <section>
@@ -87,7 +88,25 @@
     </div>
     <progress data-progress value="0" max="1" hidden></progress>
   </section>
-  <p class="dim">The pictures use the last 20 KB of the sample area; a very large sample bank would replace them, and the built-in art then comes back.</p>
+  <section data-editor data-width="16" data-height="16" data-base="38" data-name="thrown" data-round>
+    <h2>THROWN PICTURE</h2>
+    <p class="dim">Flies at the target instead of a knife (OP4 + OP5), 16 x 16 pixels, cut to a circle. A small copy sticks in the target on a hit. Keep it simple: at this size only bold shapes read.</p>
+    <input data-file type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <div class="row"><label><input data-fit type="checkbox" checked> Fill the frame (crop the edges)</label></div>
+    <p class="dim">Preview. Drag to move the picture; scroll, pinch or use the slider to zoom.</p>
+    <canvas data-canvas class="round small" width="16" height="16"></canvas>
+    <div class="row">
+      <label>Zoom <input data-zoom type="range" min="1" max="8" step="0.01" value="1"></label>
+      <output data-zoom-value>1.0x</output>
+      <button data-reset type="button">Reset</button>
+    </div>
+    <div class="row">
+      <button data-send class="primary" disabled>Send thrown picture</button>
+      <button data-clear disabled>Remove thrown picture</button>
+    </div>
+    <progress data-progress value="0" max="1" hidden></progress>
+  </section>
+  <p class="dim">The pictures use the last 24 KB of the sample area; a very large sample bank would replace them, and the built-in art then comes back.</p>
 </main>
 <script src="background.js"></script>
 <script>
@@ -136,7 +155,7 @@
     const shown = [];
     for (const e of editors) if ((await e.fm.state()).picture) shown.push(e.name);
     connected = true;
-    say('FM-1 connected. ' + (shown.length ? 'It has your ' + shown.join(' and ') + ' picture.' : 'It is using the built-in art.'));
+    say('FM-1 connected. ' + (shown.length ? 'It has your ' + shown.join(', ') + ' picture' + (shown.length > 1 ? 's.' : '.') : 'It is using the built-in art.'));
   });
 
   // One picture editor: file, drag and zoom, send and remove.

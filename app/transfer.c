@@ -96,14 +96,15 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 {
     int r = GROOVE_PROJECT_INVALID;
     *count = 0;
-    /* Bitch909 pictures: 30-33 the backdrop, 34-37 the knife target; in each
+    /* Bitch909 pictures: 30-33 the backdrop, 34-37 the knife target, 38-41 the
+     * thing thrown at it; in each
      * group: state, write chunk, finish with CRC, clear. */
-    if (cmd >= 30 && cmd <= 37) {
+    if (cmd >= 30 && cmd <= 41) {
         unsigned slot = (cmd - 30) / 4, action = (cmd - 30) % 4;
         if (action == 0 && !n) {
             out[0] = groove_picture(slot) != NULL;
-            out[1] = slot ? GROOVE_TARGET_SIZE : GROOVE_BACKGROUND_W;
-            out[2] = slot ? GROOVE_TARGET_SIZE : GROOVE_BACKGROUND_H;
+            out[1] = slot == 2 ? GROOVE_THROW_SIZE : slot ? GROOVE_TARGET_SIZE : GROOVE_BACKGROUND_W;
+            out[2] = slot == 2 ? GROOVE_THROW_SIZE : slot ? GROOVE_TARGET_SIZE : GROOVE_BACKGROUND_H;
             *count = 3; return 0;
         }
         if (action == 1 && n > 2 && n <= 66) return groove_picture_write(slot, get16(data), data + 2, n - 2);

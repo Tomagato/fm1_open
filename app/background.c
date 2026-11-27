@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* Player-supplied pictures for Bitch909, sent from the browser as RGB565:
- * slot 0 is the 120x56 backdrop, slot 1 the 40x40 knife-board target. They
- * live in the last five sectors of the sample area. A sample bank large enough
+ * slot 0 is the 120x56 backdrop, slot 1 the 40x40 knife-board target, slot 2
+ * the 16x16 thing thrown at it. They live in the last six sectors of the sample area. A sample bank large enough
  * to reach those sectors takes them back: the pictures then fail their
  * checksums and the built-in art returns. Control task only. */
 #include "fm1_device.h"
@@ -13,7 +13,8 @@ struct header { uint32_t magic; uint16_t width, height; uint32_t crc, commit; };
 _Static_assert(sizeof(struct header) == 16, "picture header");
 static const struct { uint32_t offset; uint16_t width, height; } slots[GROOVE_PICTURES] = {
     {GROOVE_BACKGROUND_OFFSET, GROOVE_BACKGROUND_W, GROOVE_BACKGROUND_H},
-    {GROOVE_TARGET_OFFSET, GROOVE_TARGET_SIZE, GROOVE_TARGET_SIZE}};
+    {GROOVE_TARGET_OFFSET, GROOVE_TARGET_SIZE, GROOVE_TARGET_SIZE},
+    {GROOVE_THROW_OFFSET, GROOVE_THROW_SIZE, GROOVE_THROW_SIZE}};
 static const uint8_t *pixels[GROOVE_PICTURES];
 static unsigned checked[GROOVE_PICTURES], position[GROOVE_PICTURES];
 
@@ -21,7 +22,7 @@ static unsigned total(unsigned slot) { return 16U + slots[slot].width * slots[sl
 static int usable(void)
 {
     return fm1_flash_size() == GROOVE_FLASH_BYTES && groove_samples_status() != 3 &&
-           groove_samples_size() <= GROOVE_TARGET_OFFSET - GROOVE_SAMPLE_OFFSET;
+           groove_samples_size() <= GROOVE_THROW_OFFSET - GROOVE_SAMPLE_OFFSET;
 }
 const uint8_t *groove_picture(unsigned slot)
 {

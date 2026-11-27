@@ -334,10 +334,13 @@ enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
        GROOVE_SAMPLE_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET };
 /* Bitch909 player pictures: a 16 B header and little-endian RGB565 pixels.
  * Slot 0 is the 120x56 backdrop in the last four sectors of the sample area,
- * slot 1 the 40x40 knife-board target in the sector before. See background.c. */
-enum { GROOVE_PICTURES = 2, GROOVE_BACKGROUND_W = 120, GROOVE_BACKGROUND_H = 56, GROOVE_TARGET_SIZE = 40,
+ * slot 1 the 40x40 knife-board target in the sector before, slot 2 the 16x16
+ * thing that is thrown at it in the sector before that. See background.c. */
+enum { GROOVE_PICTURES = 3, GROOVE_BACKGROUND_W = 120, GROOVE_BACKGROUND_H = 56, GROOVE_TARGET_SIZE = 40,
+       GROOVE_THROW_SIZE = 16,
        GROOVE_BACKGROUND_OFFSET = GROOVE_LIBRARY_OFFSET - 4 * 4096,
-       GROOVE_TARGET_OFFSET = GROOVE_BACKGROUND_OFFSET - 4096 };
+       GROOVE_TARGET_OFFSET = GROOVE_BACKGROUND_OFFSET - 4096,
+       GROOVE_THROW_OFFSET = GROOVE_TARGET_OFFSET - 4096 };
 const uint8_t *groove_picture(unsigned slot); /* pixel bytes, or NULL for the built-in art */
 void groove_picture_poll(void);
 int groove_picture_write(unsigned slot, unsigned offset, const uint8_t *data, unsigned bytes);
