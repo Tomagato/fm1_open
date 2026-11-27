@@ -16,7 +16,9 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | Other three encoders | Two select the drum, one sets the tempo |
 | SCL | Pattern length, 1 to 4 bars |
 | OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
-| EDIT (hold) | Clear the selected drum |
+| EDIT + white key | Delete that step (every drum on it) |
+| EDIT + black key | Delete that drum from the whole pattern |
+| EDIT (hold 2 s) | Delete the whole pattern |
 | ENV (hold) | Vape: a pixel vape pen appears on the beach and puffs a cloud across the sunset (animation only) |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
 | HOME (hold) | Terms of use |

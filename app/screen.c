@@ -139,7 +139,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(255, 100, 110), BEACH_RGB(255, 150, 70),  BEACH_RGB(255, 208, 96),  BEACH_RGB(255, 236, 170),
     BEACH_RGB(240, 110, 180), BEACH_RGB(180, 130, 250), BEACH_RGB(100, 150, 255), BEACH_RGB(70, 214, 200)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "FX:KNOBS SCL:BARS ENV:VAPE LFO:GAME";
+static const char help[] = "EDIT:DELETE FX:KNOBS ENV:VAPE LFO:GAME";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_TERMS, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
@@ -726,11 +726,18 @@ static void kit_prepare(uint32_t now)
         say("KIT LOAD FAILED - RETRYING", now, 1500);
     }
 }
-static void clear_lane(void)
+static void clear_lane(unsigned pad)
 {
-    uint64_t steps = groove_drum_steps(KIT, drum);
+    uint64_t steps = groove_drum_steps(KIT, pad);
     for (unsigned step = 0; step < GROOVE_STEPS; ++step)
-        if ((steps >> step) & 1U) groove_sequence_edit(KIT, step, groove_pad_note(KIT, drum), 0);
+        if ((steps >> step) & 1U) groove_sequence_edit(KIT, step, groove_pad_note(KIT, pad), 0);
+}
+static void clear_step(unsigned step)
+{
+    struct groove_view v = {0};
+    groove_get_view(KIT, step, &v);
+    for (unsigned pad = 0; pad < 8; ++pad)
+        if (v.step.drums & (1U << pad)) groove_sequence_edit(KIT, step, groove_pad_note(KIT, pad), 0);
 }
 /* GLO is the one Bluetooth MIDI control. A tap shows the link. A hold closes
  * an open link; without one it swaps who connects: a phone or computer finds
@@ -953,15 +960,18 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         int r = groove_project_save_slot(KIT_SLOT);
         say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "PATTERN SAVED", now, 1500);
     }
+    /* EDIT is delete: with a white key it empties that step, with a black key
+     * that drum, and held on its own for two seconds the whole pattern. */
+    unsigned erasing = (controls->buttons & BUTTON(EDIT)) != 0;
     if (pressed & BUTTON(EDIT)) {
         edit_since = now;
         edit_fired = 0;
-        say("HOLD EDIT TO CLEAR THIS DRUM", now, 1200);
+        say("EDIT+KEY: DELETE  HOLD: DELETE ALL", now, 2000);
     }
-    if ((controls->buttons & BUTTON(EDIT)) && !edit_fired && now - edit_since >= 700U) {
+    if (erasing && !edit_fired && now - edit_since >= 2000U) {
         edit_fired = 1;
-        clear_lane();
-        say("DRUM CLEARED", now, 1500);
+        for (unsigned pad = 0; pad < 8; ++pad) clear_lane(pad);
+        say("PATTERN DELETED", now, 1500);
     }
 
     /* Encoders: the outer three pick the drum and tempo, K1-K4 follow the footer. */
@@ -992,6 +1002,15 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
             if (!post((uint8_t)(0x80 + channel), key_note[key], 0, 3)) return;
             key_note[key] = 0xff;
         }
+        if (erasing) {
+            if ((key_down & keys) & (1U << key)) {
+                drum = lane_pad[lane];
+                clear_lane(drum);
+                edit_fired = 1;
+                say("DRUM DELETED", now, 1200);
+            }
+            continue;
+        }
         if (down && key_note[key] == 0xff && note < 128) {
             if (!post((uint8_t)(0x90 + channel), (uint8_t)note, 100, 3)) return;
             key_note[key] = (uint8_t)note;
@@ -999,7 +1018,13 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         }
     }
     for (unsigned i = 0; i < 16; ++i)
-        if ((key_down & keys) & (1U << white_keys[i])) toggle_step(bar * 16U + i);
+        if ((key_down & keys) & (1U << white_keys[i])) {
+            if (erasing) {
+                clear_step(bar * 16U + i);
+                edit_fired = 1;
+                say("STEP DELETED", now, 1200);
+            } else toggle_step(bar * 16U + i);
+        }
     selected_note = groove_pad_note(KIT, drum);
 }
 void groove_screen_init(void)
