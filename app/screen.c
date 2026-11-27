@@ -130,19 +130,19 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 #include "beach_scene.inc"
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
-enum { SYNTH = 0, KIT = 7, KIT_SLOT = GROOVE_PROJECT_SLOTS - 1, SCENE_ROWS = BEACH_H * 2, SEA_ROW = BEACH_HORIZON * 2,
+enum { SYNTH = 0, KIT = 7, KIT_SLOT = GROOVE_PROJECT_SLOTS - 1, SCENE_ROWS = BEACH_H * 2,
        RED = 0xf9a6, INK = 0x2108, INK_BEAT = 0x39cf, INK_LANE = 0x4a35, HEAD = 0x7bf7 };
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t pad_keys[8] = {1, 3, 5, 8, 10, 13, 15, 17};
 /* Screen and key order: BD SD CH OH CP RS TM CR, mapped onto the kit's pads. */
-static const uint8_t lane_pad[8] = {0, 1, 6, 7, 3, 2, 4, 5}, pad_lane[8] = {0, 1, 5, 4, 6, 7, 2, 3};
+static const uint8_t lane_pad[8] = {0, 1, 6, 7, 3, 2, 4, 5};
 /* Terms Of Service colours: the logo's red, white and blue, and tints of them. */
 static const uint16_t lane_color[8] = {
     BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BITCH909";
 static const char old_kit_name[] = "BEACH 909"; /* what earlier builds called it; their saved loops still load */
-enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, PAGE_FX, GAME_W = 8, GAME_H = 14 };
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, GAME_W = 8, GAME_H = 14 };
 
 static unsigned drum;
 /* The loop: REC records what is played into a four-bar loop on the track the
@@ -189,12 +189,11 @@ static const uint8_t *target_picture;
  * one while pressed, black keys latch it. The first ten run in the audio
  * output stage; FREEZE and WARP lean on the delay. */
 enum { FX_TILES = 12, FX_FREEZE = 10, FX_WARP = 11 };
-static const char *const fx_names[FX_TILES] = {"CRUSH", "DOWNSMPL", "DRIVE", "FOLD", "RING", "CHOP",
-                                               "STUTTER", "REVERSE", "LOWPASS", "HIGHPASS", "FREEZE", "WARP"};
 static unsigned fx_held, fx_latched, fx_depth = 10, fx_rate = 6, fx_sent = ~0U, fx_down, fx_fired, fx_engine;
 static uint32_t fx_since, warp_at;
 static uint8_t fx_delay[2]; /* the player's delay time and feedback while FREEZE or WARP has them */
-static unsigned intro; /* smoke over the welcome page and its fade into the first screen */
+static unsigned intro, fx_open;
+static uint32_t signs_shown, tiles_shown; /* smoke over the welcome page and its fade into the first screen */
 static uint32_t coin_at, coin_random;
 static unsigned view_page = PAGE_SPLASH;
 static uint32_t splash_at, glitch_until;
@@ -219,7 +218,7 @@ static char frame_voice[11];
 /* The radar: ten controls on ten spokes, each 0 to 100. No numbers anywhere. */
 enum { RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO, RADAR_RETURN, RADAR_REVERB, RADAR_DELAY,
        RADAR_FEEDBACK, RADAR_SMOKE, RADAR_SYNTH, RADAR_AXES, RADAR_X = 196, RADAR_Y = 161, RADAR_R = 30 };
-static uint8_t frame_radar[RADAR_AXES], frame_axis[4];
+static uint8_t frame_radar[RADAR_AXES]; /* kept as the controls' 0-100 readings; nothing draws them now */
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
 static uint8_t game_cells[GAME_H][GAME_W];
 static struct { int x, y; unsigned kind, turn; } game_piece;
@@ -379,9 +378,9 @@ static void scene_draw(void)
         } else {
             if (cache->sea != scene_phase) {
                 /* Only the shooting star moves by itself: repaint its strip while it flies. */
-                if (scene_phase % 60U < 10U) paint_mark(90, 0, 150, 56);
+                if (scene_phase % 60U < 10U) paint_mark(90, 0, 150, 50);
             }
-            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(116, 0, 80, SEA_ROW + 12);
+            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(80, 52, 98, 98);
         }
         cache->sea = scene_phase;
         cache->sun = scene_pulse | ((uint32_t)scene_mark << 1);
@@ -401,91 +400,6 @@ static void scene_draw(void)
             out[col - paint_x] = color;
         }
         memcpy(out + stride, out, stride * sizeof *out);
-    }
-}
-static const char *drum_title(unsigned pad)
-{
-    static const char *const titles[8][2] = {
-        {"BD", "BASS DRUM"}, {"SD", "SNARE"},   {"CH", "CLSD HAT"}, {"OH", "OPEN HAT"},
-        {"CP", "HAND CLAP"}, {"RS", "RIM SHOT"}, {"TM", "TOM"},      {"CR", "CRASH"}};
-    const char *name = groove_pad_name(KIT, pad);
-    for (unsigned i = 0; i < 8; ++i)
-        if (name[0] == titles[i][0][0] && name[1] == titles[i][0][1] && (name[2] == ' ' || !name[2]))
-            return titles[i][1];
-    return name;
-}
-static void status_draw(void)
-{
-    if (paint_rendering && (paint_top >= 128 || paint_top + PAINT_ROWS <= 112)) return;
-    unsigned sounding = led_cache != 0, recording = writing || (armed && ((frame_time / 250U) & 1U));
-    const unsigned state[] = {recording, frame_radar[RADAR_TEMPO], scene_pulse, synth_mode, frame_synth.program, (unsigned)(octave + 2),
-                              drum, sounding, frame_view.clock_mode, frame_dirty};
-    uint32_t sig = signature(signature(5381, state, sizeof state), frame_voice, sizeof frame_voice);
-    if (sig == cache->status) return;
-    cache->status = sig;
-    paint_fill(0, 112, FM1_SCREEN_WIDTH, 16, BACK);
-    /* The Terms Of Service pulse lights while anything is sounding. */
-    paint_fill(2, 114, 12, 11, sounding ? lane_color[0] : DIM);
-    paint_fill(3, 120, 3, 2, BACK);
-    paint_fill(5, 117, 2, 5, BACK);
-    paint_fill(5, 117, 6, 2, BACK);
-    paint_fill(9, 117, 2, 5, BACK);
-    paint_fill(10, 120, 3, 2, BACK);
-    char name[11] = {0};
-    strncpy(name, synth_mode ? frame_voice : drum_title(drum), 10);
-    text(16, 113, name, 2, synth_mode ? lane_color[2] : lane_color[pad_lane[drum]], BACK);
-    /* Octave: five dots, the lit one is where the keys sit. */
-    for (int o = -2; o <= 2; ++o) paint_fill(140 + (unsigned)(o + 2) * 4, 119, 3, 3, synth_mode && o == octave ? TEXT : INK_LANE);
-    /* Tempo is a bar, not a figure: longer is faster. */
-    paint_fill(164, 117, 62, 6, INK);
-    paint_fill(164, 117, frame_radar[RADAR_TEMPO] * 62U / 100U, 6, frame_view.clock_mode ? AMBER : TEXT);
-    if (recording) paint_fill(230, 116, 7, 7, RED);
-    else if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
-}
-/* Left of the radar: the preset list while the keys play the synth, eight
- * pads while they play the drums. */
-static void browser_draw(void)
-{
-    if (paint_rendering && (paint_top >= 193 || paint_top + PAINT_ROWS <= 129)) return;
-    if (cache->cell[0][0] != synth_mode) {
-        cache->cell[0][0] = (uint8_t)synth_mode;
-        memset(cache->lane, 0xff, sizeof cache->lane);
-        paint_fill(0, 129, 152, 64, BACK);
-    }
-    if (synth_mode) {
-        for (unsigned row = 0; row < 7; ++row) {
-            unsigned y = 130 + row * 9, distance = row > 3 ? row - 3 : 3 - row;
-            if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 9 <= paint_top)) continue;
-            uint32_t sig = signature(row, frame_names[row], 10);
-            if (sig == cache->lane[row]) continue;
-            cache->lane[row] = sig;
-            uint16_t bg = distance ? BACK : lane_color[2];
-            paint_fill(0, y - 1, 140, 9, bg);
-            text(distance ? 10 : 4, y, frame_names[row], 1,
-                 !distance ? BACK : distance == 1 ? TEXT : distance == 2 ? DIM : INK_LANE, bg);
-        }
-        /* Where this voice sits among all of them. */
-        uint32_t sig = frame_synth.program;
-        if (sig != cache->lane[7] && !(paint_rendering && 0)) {
-            cache->lane[7] = sig;
-            paint_fill(145, 130, 3, 62, INK);
-            paint_fill(144, 130 + frame_synth.program * 58U / 127U, 5, 4, lane_color[2]);
-        }
-        return;
-    }
-    for (unsigned lane = 0; lane < 8; ++lane) {
-        unsigned x = 2 + (lane & 3U) * 37, y = 130 + (lane >> 2) * 32, pad = lane_pad[lane];
-        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 30 <= paint_top)) continue;
-        unsigned hit = key_note[pad_keys[lane]] != 0xff || key_note[white_keys[lane]] != 0xff;
-        const char *name = groove_pad_name(KIT, pad);
-        char label[3] = {name[0], name[0] ? name[1] : 0, 0};
-        uint32_t sig = hit | ((pad == drum) << 1) | ((uint32_t)(uint8_t)label[0] << 8) | ((uint32_t)(uint8_t)label[1] << 16);
-        if (sig == cache->lane[lane]) continue;
-        cache->lane[lane] = sig;
-        uint16_t bg = hit ? lane_color[lane] : INK;
-        paint_fill(x, y, 34, 29, pad == drum ? lane_color[lane] : INK_LANE);
-        paint_fill(x + 1, y + 1, 32, 27, bg);
-        text(x + 5, y + 8, label, 2, hit ? BACK : lane_color[lane], bg);
     }
 }
 static unsigned coin_pusher_y(void)
@@ -555,159 +469,61 @@ static void coins_draw(void)
     }
 }
 #ifdef FM1_HOST_TEST
-static char web_knobs[4][2][16];
+static char web_knobs[4][2][16]; /* the preview page asks for knob labels; there are none to show */
 #endif
-/* One bar per knob: its name and how far it is turned, 0 to 100. */
-static void knob(unsigned col, const char *label, unsigned amount)
-{
-    if (amount > 100) amount = 100;
-#ifdef FM1_HOST_TEST
-    memset(web_knobs[col], 0, sizeof web_knobs[col]);
-    strncpy(web_knobs[col][0], label, 15);
-    decimal(web_knobs[col][1], (int)amount, 1);
-#endif
-    unsigned y = 194 + col * 9;
-    if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 8 <= paint_top)) return;
-    uint32_t sig = signature(amount + 1U, label, (unsigned)strlen(label));
-    if (cache->foot[col] == sig)
-        return;
-    cache->foot[col] = sig;
-    paint_fill(0, y, 152, 8, BACK);
-    text(2, y, label, 1, lane_color[col], BACK);
-    paint_fill(54, y + 1, 96, 5, INK);
-    paint_fill(54, y + 1, amount * 96U / 100U, 5, lane_color[col]);
-}
-static void knobs_draw(void)
-{
-    memset(frame_axis, 0xff, sizeof frame_axis);
-    if (knob_bank == 2) {
-        frame_axis[0] = RADAR_SMOKE;
-        knob(0, "SMOKE", smoke);
-        knob(1, "DRIFT", smoke_drift * 100U / 6U);
-        knob(2, "MAX", smoke == 100 ? 100U : 0U);
-        knob(3, "CLEAR", smoke ? 0U : 100U);
-        return;
-    }
-    static const char *const labels[3][4] = {{"LEVEL", "TUNE", "DECAY", "TEMPO"}, {"VOLUME", "REVERB", "DELAY", "TEMPO"},
-                                             {"REVERB", "DELAY", "FEEDBACK", "FX LEVEL"}};
-    static const uint8_t axes[3][4] = {{RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO},
-                                       {RADAR_SYNTH, RADAR_REVERB, RADAR_DELAY, RADAR_TEMPO},
-                                       {RADAR_REVERB, RADAR_DELAY, RADAR_FEEDBACK, RADAR_RETURN}};
-    unsigned set = knob_bank ? 2U : synth_mode;
-    for (unsigned col = 0; col < 4; ++col) {
-        frame_axis[col] = axes[set][col];
-        knob(col, labels[set][col], frame_radar[frame_axis[col]]);
-    }
-}
-/* Direct pixel work for the radar; band painter only. */
+/* Direct pixel work over the finished scene; band painter only. */
 static void plot(int x, int y, uint16_t color)
 {
     if (x < (int)paint_x || x >= (int)paint_end || y < (int)paint_top || y >= (int)(paint_top + PAINT_ROWS)) return;
     paint_pixels[((unsigned)y - paint_top) * (paint_end - paint_x) + (unsigned)x - paint_x] = color;
 }
-static void plot_line(int x, int y, int end_x, int end_y, uint16_t color)
+static void disc(int cx, int cy, int r, uint16_t color, unsigned filled)
 {
-    int dx = end_x > x ? end_x - x : x - end_x, dy = end_y > y ? y - end_y : end_y - y;
-    int sx = x < end_x ? 1 : -1, sy = y < end_y ? 1 : -1, error = dx + dy;
-    for (;;) {
-        plot(x, y, color);
-        if (x == end_x && y == end_y) break;
-        int twice = 2 * error;
-        if (twice >= dy) { error += dy; x += sx; }
-        if (twice <= dx) { error += dx; y += sy; }
-    }
-}
-/* Ten controls as one shape, like a player's attributes: the further a corner
- * reaches, the higher that control. The four spokes on K1-K4 take the knob colours. */
-static void radar_draw(void)
-{
-    static const int8_t across[RADAR_AXES] = {0, 75, 121, 121, 75, 0, -75, -121, -121, -75};
-    static const int8_t down[RADAR_AXES] = {-127, -103, -39, 39, 103, 127, 103, 39, -39, -103};
-    enum { LEFT = RADAR_X - RADAR_R - 3, TOP = RADAR_Y - RADAR_R - 3, SIZE = 2 * RADAR_R + 7 };
-    if (!paint_rendering) {
-        uint32_t sig = signature(signature(17, frame_radar, sizeof frame_radar), frame_axis, sizeof frame_axis);
-        if (sig != cache->radar) paint_mark(LEFT, TOP, SIZE, SIZE);
-        cache->radar = sig;
-        return;
-    }
-    if (paint_top >= TOP + SIZE || paint_top + PAINT_ROWS <= TOP) return;
-    paint_fill(LEFT, TOP, SIZE, SIZE, BACK);
-    int px[RADAR_AXES], py[RADAR_AXES], ox[RADAR_AXES], oy[RADAR_AXES];
-    for (unsigned i = 0; i < RADAR_AXES; ++i) {
-        int reach = RADAR_R * (14 + (int)frame_radar[i] * 86 / 100);
-        px[i] = RADAR_X + across[i] * reach / 12700; py[i] = RADAR_Y + down[i] * reach / 12700;
-        ox[i] = RADAR_X + across[i] * RADAR_R / 127; oy[i] = RADAR_Y + down[i] * RADAR_R / 127;
-    }
-    /* Fill the shape, every other pixel, one row at a time. */
-    for (int row = (int)paint_top; row < (int)(paint_top + PAINT_ROWS); ++row) {
-        int cross[RADAR_AXES], count = 0;
-        for (unsigned i = 0; i < RADAR_AXES; ++i) {
-            unsigned j = (i + 1U) % RADAR_AXES;
-            if ((py[i] <= row) != (py[j] <= row))
-                cross[count++] = px[i] + (row - py[i]) * (px[j] - px[i]) / (py[j] - py[i]);
+    if (cy + r < (int)paint_top || cy - r >= (int)(paint_top + PAINT_ROWS)) return;
+    for (int dy = -r; dy <= r; ++dy)
+        for (int dx = -r; dx <= r; ++dx) {
+            int d = dx * dx + dy * dy;
+            if (d <= r * r && (filled || d > (r - 2) * (r - 2))) plot(cx + dx, cy + dy, color);
         }
-        for (int i = 1; i < count; ++i)
-            for (int k = i; k > 0 && cross[k] < cross[k - 1]; --k) { int t = cross[k]; cross[k] = cross[k - 1]; cross[k - 1] = t; }
-        for (int i = 0; i + 1 < count; i += 2)
-            for (int x = cross[i]; x <= cross[i + 1]; ++x)
-                if ((x ^ row) & 1) plot(x, row, BEACH_RGB(150, 16, 30));
-    }
-    for (unsigned i = 0; i < RADAR_AXES; ++i) {
-        unsigned j = (i + 1U) % RADAR_AXES;
-        uint16_t spoke = INK_BEAT;
-        for (unsigned col = 0; col < 4; ++col)
-            if (frame_axis[col] == i) spoke = lane_color[col];
-        plot_line((ox[i] + RADAR_X) / 2, (oy[i] + RADAR_Y) / 2, (ox[j] + RADAR_X) / 2, (oy[j] + RADAR_Y) / 2, INK);
-        plot_line(ox[i], oy[i], ox[j], oy[j], INK_LANE);
-        plot_line(RADAR_X, RADAR_Y, ox[i], oy[i], spoke);
-    }
-    for (unsigned i = 0; i < RADAR_AXES; ++i) {
-        unsigned j = (i + 1U) % RADAR_AXES;
-        plot_line(px[i], py[i], px[j], py[j], TEXT);
-    }
-    for (unsigned i = 0; i < RADAR_AXES; ++i) {
-        uint16_t dot = TEXT;
-        for (unsigned col = 0; col < 4; ++col)
-            if (frame_axis[col] == i) dot = lane_color[col];
-        for (int k = 0; k < 9; ++k) plot(px[i] - 1 + k % 3, py[i] - 1 + k / 3, dot);
-    }
 }
-static void hint_draw(void)
+/* No words or figures anywhere. What the player needs is drawn into the
+ * scene: eight moons on the ground while the keys are drums, lit as they are
+ * hit, and a row of sixteen lights along the bottom edge for the preset
+ * (which light, and its colour for which sixteen). */
+static void signs_draw(void)
 {
-    if (paint_rendering && paint_top + PAINT_ROWS <= 231) return;
-    const char *line = notice ? notice : frame_samples != 2 && !synth_mode ? "NO SAMPLES: WRITE THE KIT FROM THE WEB"
-        : synth_mode ? "REC:LOOP SCL/SEQ:PRESET HOLD FX:MASTER" : "REC:LOOP HOME:SYNTH ARP:REPEAT ENV:VAPE";
-    uint32_t sig = signature(notice != NULL, line, (unsigned)strlen(line));
-    if (sig == cache->hint) return;
-    cache->hint = sig;
-    paint_fill(0, 231, FM1_SCREEN_WIDTH, 7, BACK);
-    text(4, 231, line, 1, notice ? AMBER : DIM, BACK);
+    if (!synth_mode)
+        for (unsigned lane = 0; lane < 8; ++lane) {
+            unsigned hit = key_note[pad_keys[lane]] != 0xff || key_note[white_keys[lane]] != 0xff;
+            disc(22 + (int)lane * 28, 204, hit ? 11 : 8, lane_color[lane], hit || lane_pad[lane] == drum);
+        }
+    for (unsigned i = 0; i < 16; ++i) {
+        unsigned lit = i == (frame_synth.program & 15U);
+        uint16_t color = lit ? lane_color[(frame_synth.program >> 4) & 7U] : BEACH_RGB(40, 34, 70);
+        for (unsigned k = 0; k < (lit ? 48U : 12U); ++k)
+            plot(9 + (int)i * 14 + (int)(k % (lit ? 8U : 4U)) + (lit ? 0 : 2), 231 + (int)(k / (lit ? 8U : 4U)) + (lit ? 0 : 2), color);
+    }
 }
-/* Splash: the Terms Of Service mark (a disc with a square pulse, redrawn from
- * the act's own logo) over the firmware's name, both jittered. */
+/* Welcome: the Terms Of Service mark (a disc with a square pulse, redrawn from
+ * the act's own logo) jittering over the scene. No lettering. */
 static void splash_draw(void)
 {
-    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
-    static const uint16_t tint[4] = {TEXT, 0x07ff, 0xf81f, TEXT};
-    enum { DISC = 26, DISC_Y = 146 };
+    enum { DISC = 40, DISC_Y = 172 };
     unsigned jitter = (frame_time / 90U) & 7U, shift = jitter == 2 ? 3U : jitter == 5 ? 0U : 1U;
-    if (cache->status == jitter) return;
-    cache->status = jitter;
-    paint_fill(0, 116, FM1_SCREEN_WIDTH, 96, BACK);
-    unsigned cx = 117 + shift * 3;
-    uint16_t disc = jitter == 2 ? 0x07ff : jitter == 5 ? TEXT : BEACH_RGB(209, 21, 33);
-    for (int dy = -DISC; dy <= DISC; ++dy) {
-        unsigned half = 0;
-        while ((int)((half + 1U) * (half + 1U)) + dy * dy <= DISC * DISC) ++half;
-        paint_fill(cx - half, (unsigned)(DISC_Y + dy), 2U * half + 1U, 1, disc);
+    if (!paint_rendering) {
+        if (cache->status != jitter) paint_mark(60, DISC_Y - DISC - 2, 124, 2 * DISC + 5);
+        cache->status = jitter;
+        return;
     }
-    paint_fill(cx - 20, DISC_Y + 4, 14, 5, BACK);
-    paint_fill(cx - 11, DISC_Y - 8, 5, 17, BACK);
-    paint_fill(cx - 11, DISC_Y - 8, 23, 5, BACK);
-    paint_fill(cx + 7, DISC_Y - 8, 5, 17, BACK);
-    paint_fill(cx + 7, DISC_Y + 4, 14, 5, BACK);
-    text(72, 178, "TERMS OF SERVICE", 1, TEXT, BACK);
-    text(74 - shift * 2, 194, kit_name, 2, tint[(jitter + 1U) & 3U], BACK);
+    if (paint_top + PAINT_ROWS <= DISC_Y - DISC || paint_top > DISC_Y + DISC) return;
+    int cx = 117 + (int)shift * 3;
+    uint16_t color = jitter == 2 ? 0x07ff : jitter == 5 ? TEXT : BEACH_RGB(209, 21, 33);
+    disc(cx, DISC_Y, DISC, color, 1);
+    for (int dy = -12; dy <= 12; ++dy)
+        for (int dx = -30; dx <= 30; ++dx) {
+            int ax = dx < 0 ? -dx : dx;
+            if ((dy <= -6 && ax <= 16) || (ax >= 10 && ax <= 16) || (dy >= 6 && ax >= 10)) plot(cx + dx, DISC_Y + dy, BACK);
+        }
 }
 static const struct { uint8_t size, count; int8_t cell[4][2]; } game_shapes[6] = {
     {2, 2, {{0, 0}, {1, 0}}},                 {3, 3, {{0, 1}, {1, 1}, {2, 1}}},
@@ -728,7 +544,7 @@ static void game_block(unsigned index, int x, int y, unsigned turn, int *column,
 }
 static void game_draw(void)
 {
-    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
+    if (paint_rendering && paint_top + PAINT_ROWS <= 116) return;
     uint8_t board[GAME_H][GAME_W];
     memcpy(board, game_cells, sizeof board);
     if (!game_over)
@@ -740,22 +556,12 @@ static void game_draw(void)
     uint32_t sig = game_lines | (game_over << 16);
     if (sig != cache->status) {
         cache->status = sig;
-        paint_fill(0, 116, 86, 112, BACK);
-        paint_fill(154, 116, 86, 112, BACK);
-        paint_fill(86, 116, 2, 112, INK_LANE);
-        paint_fill(152, 116, 2, 112, INK_LANE);
-        text(6, 120, "TIDE", 2, lane_color[7], BACK);
-        text(6, 138, "BLOCKS", 2, lane_color[4], BACK);
-        text(6, 170, "LINES", 1, DIM, BACK);
-        char lines[12];
-        decimal(lines, (int)game_lines, 1);
-        text(6, 182, lines, 3, TEXT, BACK);
-        static const char *const keys[] = {"OCT: MOVE", "SEQ: TURN", "REC: DROP", "PLAY: LOOP", "OP6+PIT+GLO"};
-        for (unsigned i = 0; i < 5; ++i) text(162, 120 + i * 11, keys[i], 1, DIM, BACK);
-        if (game_over) {
-            text(162, 190, "WIPEOUT", 1, AMBER, BACK);
-            text(162, 202, "REC: AGAIN", 1, AMBER, BACK);
-        }
+        paint_fill(86, 116, 2, 112, game_over ? AMBER : INK_LANE);
+        paint_fill(152, 116, 2, 112, game_over ? AMBER : INK_LANE);
+        /* Cleared lines stack up as lights beside the well. */
+        paint_fill(160, 116, 30, 112, BACK);
+        for (unsigned line = 0; line < game_lines && line < 42; ++line)
+            paint_fill(162 + (line / 14U) * 9U, 220 - (line % 14U) * 8U, 6, 6, lane_color[line % 8U]);
     }
     for (unsigned row = 0; row < GAME_H; ++row)
         for (unsigned column = 0; column < GAME_W; ++column) {
@@ -765,27 +571,31 @@ static void game_draw(void)
             paint_fill(88 + column * 8, 116 + row * 8, 7, 7, board[row][column] ? lane_color[board[row][column] - 1U] : INK);
         }
 }
-static void fx_draw(void)
+/* Master FX overlay: twelve tiles over whatever is on screen, each a small
+ * picture of what it does to a wave. Red while held, blue when latched. */
+static void fx_overlay(void)
 {
-    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
+    static const uint8_t shape[FX_TILES][12] = {
+        {2, 2, 6, 6, 10, 10, 14, 14, 10, 10, 6, 6},      {4, 4, 4, 12, 12, 12, 6, 6, 6, 14, 14, 14},
+        {2, 8, 14, 14, 14, 14, 14, 14, 8, 2, 2, 2},       {2, 8, 14, 8, 2, 8, 14, 8, 2, 8, 14, 8},
+        {14, 2, 14, 2, 14, 2, 14, 2, 14, 2, 14, 2},       {12, 12, 12, 0, 0, 0, 12, 12, 12, 0, 0, 0},
+        {14, 6, 2, 14, 6, 2, 14, 6, 2, 14, 6, 2},         {14, 13, 12, 11, 10, 9, 8, 6, 5, 4, 3, 2},
+        {14, 14, 14, 14, 13, 12, 10, 8, 5, 3, 2, 1},      {1, 2, 3, 5, 8, 10, 12, 13, 14, 14, 14, 14},
+        {14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14}, {8, 12, 14, 12, 8, 4, 2, 4, 8, 12, 14, 12}};
     unsigned active = fx_held | fx_latched;
     for (unsigned i = 0; i < FX_TILES; ++i) {
-        unsigned x = 2 + (i % 4U) * 59, y = 114 + (i / 4U) * 26;
-        if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 24 <= paint_top)) continue;
-        uint32_t sig = ((active >> i) & 1U) | (((fx_latched >> i) & 1U) << 1);
-        if (cache->cell[1][i] == (uint8_t)sig) continue;
-        cache->cell[1][i] = (uint8_t)sig;
-        uint16_t bg = (fx_latched >> i) & 1U ? lane_color[2] : (active >> i) & 1U ? lane_color[0] : INK;
-        paint_fill(x, y, 57, 24, (active >> i) & 1U ? TEXT : INK_LANE);
-        paint_fill(x + 1, y + 1, 55, 22, bg);
-        text(x + 4, y + 9, fx_names[i], 1, (active >> i) & 1U ? BACK : TEXT, bg);
+        unsigned x = 6 + (i % 4U) * 58, y = 62 + (i / 4U) * 40, on = (active >> i) & 1U;
+        if (y >= paint_top + PAINT_ROWS || y + 36 <= paint_top) continue;
+        uint16_t bg = (fx_latched >> i) & 1U ? lane_color[2] : on ? lane_color[0] : BACK;
+        paint_fill(x, y, 54, 36, on ? TEXT : INK_LANE);
+        paint_fill(x + 2, y + 2, 50, 32, bg);
+        for (unsigned k = 0; k < 12; ++k)
+            if (shape[i][k]) paint_fill(x + 4 + k * 4, y + 31 - shape[i][k] * 2, 3, shape[i][k] * 2, on ? BACK : TEXT);
     }
-    knob(0, "DEPTH", fx_depth * 100U / 15U);
-    knob(1, "RATE", fx_rate * 100U / 15U);
-    if (cache->hint != 3) {
-        cache->hint = 3;
-        text(4, 214, "WHITE KEYS HOLD, BLACK KEYS LATCH", 1, DIM, BACK);
-        text(4, 228, "HOLD FX OR TAP HOME TO GO BACK", 1, DIM, BACK);
+    /* Depth and rate: two rows of fifteen lights under the tiles. */
+    for (unsigned k = 0; k < 15; ++k) {
+        paint_fill(12 + k * 15, 184, 9, 4, k < fx_depth ? lane_color[0] : INK);
+        paint_fill(12 + k * 15, 192, 9, 4, k < fx_rate ? lane_color[2] : INK);
     }
 }
 static void knife_target(int *x, int *y)
@@ -830,7 +640,7 @@ static uint16_t knife_pixel(int x, int y)
     if (y < 6) return (x % 8 == 4 && y == 3) ? (((unsigned)x / 8U + coin_frame / 2U) % 3U ? BEACH_RGB(120, 60, 20) : BEACH_RGB(255, 236, 150)) : BEACH_RGB(90, 14, 34);
     return x % 14 == 0 ? BEACH_RGB(24, 12, 44) : ((x / 14 + y / 20) & 1) ? BEACH_RGB(58, 30, 84) : BEACH_RGB(50, 24, 74);
 }
-/* Full-screen painter for the two games, and the last message over the top. */
+/* Full-screen painter for the two games. */
 static void arcade_draw(void)
 {
     if (!paint_rendering) {
@@ -851,18 +661,14 @@ static void arcade_draw(void)
             memcpy(out + stride, out, stride * sizeof *out);
         }
     }
-    if (notice) {
-        paint_fill(0, 226, FM1_SCREEN_WIDTH, 11, BACK);
-        text(4, 228, notice, 1, TEXT, BACK);
-    }
 }
 /* Screen position of one step of one orbit (0 drums, 1 synth). */
 static void orbit_point(unsigned ring, unsigned step, int *x, int *y)
 {
     unsigned length = frame_loop[ring].sequence_length ? frame_loop[ring].sequence_length : 64U;
     unsigned angle = (step % length) * 64U / length;
-    *x = (BEACH_SUN_X + (ring ? 34 : 25) * orbit_sine[angle] / 127) * 2;
-    *y = (BEACH_SUN_Y - (ring ? 17 : 11) * orbit_sine[(angle + 16U) & 63U] / 127) * 2;
+    *x = (BEACH_SUN_X + (ring ? 48 : 34) * orbit_sine[angle] / 127) * 2;
+    *y = (BEACH_SUN_Y - (ring ? 30 : 21) * orbit_sine[(angle + 16U) & 63U] / 127) * 2;
 }
 /* The loop as two orbits around the star: drums on the inner one, the synth on
  * the outer. Every recorded step is a moon; a comet runs round as it plays.
@@ -895,20 +701,11 @@ static void draw_page(void)
     if (cache->shown != view_page) {
         memset(cache, 0xff, sizeof *cache);
         cache->shown = view_page;
-        paint_fill(0, SCENE_ROWS, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT - SCENE_ROWS, BACK);
     }
     if (view_page == PAGE_COINS || view_page == PAGE_KNIVES) { arcade_draw(); return; }
     scene_draw();
     if (view_page == PAGE_SPLASH) splash_draw();
-    else if (view_page == PAGE_FX) fx_draw();
     else if (view_page == PAGE_GAME) game_draw();
-    else {
-        status_draw();
-        browser_draw();
-        knobs_draw();
-        radar_draw();
-        hint_draw();
-    }
 }
 static void leds(void)
 {
@@ -1018,7 +815,7 @@ static void draw(void)
                              (uint32_t)frame_synth.active_steps, (uint32_t)(frame_synth.active_steps >> 32)};
     unsigned orbit = signature(7, loop + 1, sizeof loop - sizeof loop[0]);
     if (view_page == PAGE_KIT) {
-        if (orbit != orbit_shown) paint_mark(74, 0, 166, 86); /* a moon came or went */
+        if (orbit != orbit_shown) paint_mark(20, 28, 220, 146); /* a moon came or went */
         for (unsigned ring = 0; ring < 2; ++ring) {
             unsigned head = frame_loop[ring].playing ? frame_loop[ring].play_step : 255U;
             if (head == orbit_head[ring]) continue;
@@ -1028,12 +825,27 @@ static void draw(void)
                     int x, y;
                     if (at == 255U) continue;
                     orbit_point(ring, at + 64U - k, &x, &y);
-                    paint_mark((unsigned)clamp(x - 11, 0, 216), (unsigned)clamp(y - 11, 0, 88), 23, 23);
+                    paint_mark((unsigned)clamp(x - 11, 0, 216), (unsigned)clamp(y - 11, 0, 216), 23, 23);
                 }
             orbit_head[ring] = (uint8_t)head;
         }
     }
     orbit_shown = orbit;
+    /* Pads, preset lights and the FX tiles are drawn over the scene: repaint
+     * their strips when what they show changes. */
+    uint32_t pads = synth_mode ? 0U : 1U | (drum << 1);
+    if (!synth_mode)
+        for (unsigned lane = 0; lane < 8; ++lane)
+            if (key_note[pad_keys[lane]] != 0xff || key_note[white_keys[lane]] != 0xff) pads |= 16U << lane;
+    uint32_t signs = pads | ((uint32_t)frame_synth.program << 24);
+    if (signs != signs_shown && view_page == PAGE_KIT) {
+        if ((signs ^ signs_shown) & 0xffffffU) paint_mark(0, 190, FM1_SCREEN_WIDTH, 28);
+        paint_mark(0, 230, FM1_SCREEN_WIDTH, 8);
+    }
+    signs_shown = signs;
+    uint32_t tiles = fx_open | (fx_held << 1) | (fx_latched << 13) | (fx_depth << 25) | (fx_rate << 28);
+    if (tiles != tiles_shown) paint_mark(0, (tiles ^ tiles_shown) & 1U ? 0 : 60, FM1_SCREEN_WIDTH, (tiles ^ tiles_shown) & 1U ? FM1_SCREEN_HEIGHT : 138);
+    tiles_shown = tiles;
     if (frame_view.playing && !frame_view.play_step && loop[0] && !glitch) { glitch = 1U + (frame_time & 255U); glitch_until = frame_time + 70U; }
     leds();
 }
@@ -1064,8 +876,9 @@ static void paint_flush(void)
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
         draw_page();
-        if (view_page == PAGE_KIT) orbit_draw(); /* never over the games */
+        if (view_page == PAGE_KIT) { orbit_draw(); signs_draw(); } /* never over the games */
         if (smoke_seen) smoke_draw();
+        if (fx_open) fx_overlay(); /* on top of everything, in every mode */
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -1593,7 +1406,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     /* Presets are always one move away: SEQ is next, SCL is previous, and the
      * three outer encoders scroll the list. */
     int preset = controls->encoders[0] + controls->encoders[1] + controls->encoders[6];
-    if (view_page != PAGE_GAME && view_page != PAGE_FX) preset += (int)((pressed >> SEQ) & 1) - (int)((pressed >> SCL) & 1);
+    if (view_page != PAGE_GAME && !fx_open) preset += (int)((pressed >> SEQ) & 1) - (int)((pressed >> SCL) & 1);
     if (preset) groove_control_edit(SYNTH, preset, 0, 0);
     if (smoke != fx_applied) fx_apply(smoke);
     /* Master effects follow the window's keys wherever the player is. */
@@ -1641,9 +1454,41 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     else if (writing && !view.playing && !armed) writing = 0;
     groove_edit_record(writing, loop_track, 0);
 
+    /* FX: a tap swaps the knobs to the effect sends; a hold lays the master FX
+     * tiles over whatever is on screen, in any mode. While they are up the
+     * keys choose effects (white holds, black latches) and the mode underneath
+     * keeps running. Hold FX again, or tap HOME, and the tiles go; latched
+     * effects stay. */
+    unsigned fx_tap = 0;
+    if (pressed & BUTTON(FX)) { fx_since = now; fx_fired = 0; fx_down = 1; }
+    if (fx_down && !fx_fired && (controls->buttons & BUTTON(FX)) && now - fx_since >= 600U) {
+        fx_fired = 1;
+        if (!release_keys()) return;
+        blocked_keys = controls->keys;
+        fx_open = !fx_open;
+        fx_held = 0;
+    }
+    if (fx_down && !(controls->buttons & BUTTON(FX))) {
+        fx_down = 0;
+        fx_tap = !fx_fired && !fx_open && view_page == PAGE_KIT;
+    }
+    uint32_t play_keys = key_down & ~blocked_keys; /* key presses the mode underneath may use */
+    if (fx_open) {
+        static const uint8_t black[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
+        uint32_t fx_keys = controls->keys & ~blocked_keys;
+        fx_held = 0;
+        for (unsigned i = 0; i < FX_TILES; ++i) {
+            if ((fx_keys >> white_keys[i]) & 1U) fx_held |= 1U << i;
+            if (i < 11 && (play_keys >> black[i]) & 1U) fx_latched ^= 1U << i;
+        }
+        fx_depth = (unsigned)clamp((int)fx_depth + controls->encoders[2], 0, 15);
+        fx_rate = (unsigned)clamp((int)fx_rate + controls->encoders[3], 0, 15);
+        play_keys = 0;
+        if (pressed & BUTTON(HOME)) { fx_open = 0; fx_held = 0; blocked_keys = controls->keys; return; }
+    }
     /* OP1+OP2+OP3 together open and close the coin pusher; OP4+OP5 the knives. */
     unsigned in_game = view_page == PAGE_COINS || view_page == PAGE_KNIVES;
-    if (chord || knife_chord || (in_game && (pressed & BUTTON(HOME)))) {
+    if (!fx_open && (chord || knife_chord || (in_game && (pressed & BUTTON(HOME))))) {
         unsigned wanted = (pressed & BUTTON(HOME)) ? PAGE_KIT : chord ? PAGE_COINS : PAGE_KNIVES;
         if (!release_keys()) return;
         blocked_keys = controls->keys;
@@ -1654,10 +1499,10 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         return;
     }
     if (in_game) {
-        game_knobs(controls, now);
+        if (!fx_open) game_knobs(controls, now);
         unsigned tick = view_page == PAGE_COINS ? 150U - game_speed * 18U : 60U;
         for (unsigned key = 0; key < 27; ++key) {
-            if (!((key_down & ~blocked_keys) & (1U << key))) continue;
+            if (!(play_keys & (1U << key))) continue;
             if (view_page == PAGE_COINS) coin_drop(COIN_LEFT + key * (COIN_RIGHT - COIN_LEFT) / 26U);
             else
                 for (unsigned i = 0; i < BLADES; ++i) /* a knife flies straight up from above the key */
@@ -1671,7 +1516,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         return;
     }
     /* OP6+PIT+GLO together open and close Tide Blocks. */
-    if (block_chord) {
+    if (block_chord && !fx_open) {
         if (!release_keys()) return;
         blocked_keys = controls->keys;
         view_page = view_page == PAGE_GAME ? PAGE_KIT : PAGE_GAME;
@@ -1679,35 +1524,10 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         game_fall_at = now;
     }
     if (view_page == PAGE_GAME) {
-        game_control(controls, pressed, now);
+        if (!fx_open) game_control(controls, pressed, now);
         return;
     }
-    /* FX: a tap swaps the knobs to the effects, a hold opens the master FX window. */
-    if (pressed & BUTTON(FX)) { fx_since = now; fx_fired = 0; fx_down = 1; }
-    if (fx_down && !fx_fired && (controls->buttons & BUTTON(FX)) && now - fx_since >= 600U) {
-        fx_fired = 1;
-        if (!release_keys()) return;
-        blocked_keys = controls->keys;
-        view_page = view_page == PAGE_FX ? PAGE_KIT : PAGE_FX;
-        fx_held = 0;
-    }
-    if (fx_down && !(controls->buttons & BUTTON(FX))) {
-        fx_down = 0;
-        if (!fx_fired && view_page == PAGE_KIT) knob_bank = knob_bank == 1 ? 0 : 1;
-    }
-    if (view_page == PAGE_FX) {
-        if (pressed & BUTTON(HOME)) { view_page = PAGE_KIT; fx_held = 0; blocked_keys = controls->keys; return; }
-        uint32_t fx_keys = controls->keys & ~blocked_keys;
-        fx_held = 0;
-        for (unsigned i = 0; i < FX_TILES; ++i) {
-            if ((fx_keys >> white_keys[i]) & 1U) fx_held |= 1U << i;
-            static const uint8_t black[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
-            if (i < 11 && ((key_down & ~blocked_keys) >> black[i]) & 1U) fx_latched ^= 1U << i;
-        }
-        fx_depth = (unsigned)clamp((int)fx_depth + controls->encoders[2], 0, 15);
-        fx_rate = (unsigned)clamp((int)fx_rate + controls->encoders[3], 0, 15);
-        return;
-    }
+    if (fx_tap) knob_bank = knob_bank == 1 ? 0 : 1;
     if (pressed & BUTTON(HOME)) {
         if (!release_keys()) return;
         synth_mode = !synth_mode;
@@ -1744,7 +1564,8 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "SOUND SAVED", now, 1500);
     }
 
-    /* K1-K4 follow the bars at the bottom left. */
+    if (fx_open) return; /* the tiles have the knobs and the keys */
+    /* K1-K4: sound or effect sends, or the vape after ENV. */
     for (unsigned col = 0; col < 4; ++col) {
         int16_t turn = controls->encoders[2 + col];
         if (!turn) continue;

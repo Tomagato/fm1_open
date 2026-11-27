@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* Bitch909 backdrop: deep space, 120x56 logical pixels painted at 2x on the
+/* Bitch909 backdrop: deep space, 120x120 logical pixels painted at 2x on the
  * LCD. Integer only and stateless, so the same pixels come out on the device
  * and in the browser preview. `phase` drifts the stars; `pulse` swells the
  * star that carries the Terms Of Service mark, the act's logo. `picture`, when
- * set, is 120x56 little-endian RGB565 drawn behind everything else. */
+ * set, is 120x56 little-endian RGB565 drawn behind the top half of the scene. */
 
 #define BEACH_RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
-enum { BEACH_W = 120, BEACH_H = 56, BEACH_HORIZON = 34, BEACH_SUN_X = 78, BEACH_SUN_Y = 20,
-       BEACH_VAPE_X = 6, BEACH_VAPE_Y = 41, BEACH_VAPE_TIP_X = 44, BEACH_VAPE_TIP_Y = 32 };
+enum { BEACH_W = 120, BEACH_H = 120, BEACH_PICTURE_H = 56, BEACH_SUN_X = 64, BEACH_SUN_Y = 50, BEACH_SUN_R = 16,
+       BEACH_VAPE_X = 6, BEACH_VAPE_Y = 98, BEACH_VAPE_TIP_X = 44, BEACH_VAPE_TIP_Y = 89 };
 
 static unsigned beach_hash(unsigned x, unsigned y)
 {
@@ -25,8 +25,8 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
 
     /* Moon surface along the bottom edge, with a lit rim and craters. */
     int centre = (int)x - 60;
-    unsigned ground = 50U + (unsigned)(centre * centre) / 800U;
-    if (!picture && y >= ground) {
+    unsigned ground = 108U + (unsigned)(centre * centre) / 800U;
+    if (y >= ground) {
         if (y == ground) return BEACH_RGB(206, 190, 230);
         unsigned crater = beach_hash(x / 3U, y / 2U) % 11U;
         return crater == 0 ? BEACH_RGB(34, 26, 60) : crater < 4 ? BEACH_RGB(92, 80, 128) : BEACH_RGB(70, 58, 104);
@@ -52,15 +52,15 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
     }
     /* The star with the Terms Of Service mark: a disc with a square pulse.
      * `mark` is the pulse colour, set by whichever drum is sounding. */
-    int dx = (int)x - BEACH_SUN_X, dy = (int)y - BEACH_SUN_Y, r = pulse ? 14 : 13;
+    int dx = (int)x - BEACH_SUN_X, dy = (int)y - BEACH_SUN_Y, r = BEACH_SUN_R + (pulse ? 1 : 0);
     if (dx * dx + dy * dy <= r * r) {
         int ax = dx < 0 ? -dx : dx;
-        if ((dy >= -4 && dy <= -2 && ax <= 5) || (dy >= -4 && dy <= 4 && ax >= 3 && ax <= 5) ||
-            (dy >= 2 && dy <= 4 && ax >= 3 && ax <= 10))
+        if ((dy >= -5 && dy <= -3 && ax <= 6) || (dy >= -5 && dy <= 5 && ax >= 4 && ax <= 6) ||
+            (dy >= 3 && dy <= 5 && ax >= 4 && ax <= 12))
             return mark;
-        return dx + dy < -9 ? BEACH_RGB(255, 120, 110) : dx + dy < 8 ? BEACH_RGB(209, 21, 33) : BEACH_RGB(140, 12, 44);
+        return dx + dy < -11 ? BEACH_RGB(255, 120, 110) : dx + dy < 8 ? BEACH_RGB(209, 21, 33) : BEACH_RGB(140, 12, 44);
     }
-    if (dx * dx + dy * dy <= (pulse ? 19 * 19 : 16 * 16) && ((x ^ y) & 1U)) return BEACH_RGB(150, 20, 60);
+    if (dx * dx + dy * dy <= (pulse ? 23 * 23 : 20 * 20) && ((x ^ y) & 1U)) return BEACH_RGB(150, 20, 60);
     /* Shooting star. */
     unsigned flight = phase % 60U;
     if (flight < 9) {
@@ -69,19 +69,19 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
             return tail < 2 ? BEACH_RGB(255, 255, 255) : BEACH_RGB(150, 190, 255);
     }
     /* Three layers of stars. They twinkle where the picture is being redrawn anyway. */
-    for (unsigned layer = picture ? 1 : 0; layer < 3; ++layer) {
+    for (unsigned layer = picture && y < BEACH_PICTURE_H ? 1 : 0; layer < 3; ++layer) {
         unsigned h = beach_hash(x + layer * 977U, y); /* fixed: a drifting sky repaints the whole scene */
         if (h % (layer ? 113U : 71U) == 0 && ((h >> 9) + phase / 3U) % 6U)
             return layer == 2 ? BEACH_RGB(255, 255, 255) : layer ? BEACH_RGB(170, 200, 255) : BEACH_RGB(110, 100, 170);
     }
     /* A picture sent by the player is the back layer: the star, the e-cigarette,
      * the shooting star and the brighter stars above all play over it. */
-    if (picture) {
+    if (picture && y < BEACH_PICTURE_H) {
         const uint8_t *pixel = picture + (y * BEACH_W + x) * 2U;
         return (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
     }
     /* Two nebulae: dithered so the dark shows through their edges. */
-    int ex = (int)x - 34, ey = (int)y - 14, fx = (int)x - 104, fy = (int)y - 38;
+    int ex = (int)x - 28, ey = (int)y - 18, fx = (int)x - 98, fy = (int)y - 82;
     int near = (ex * ex * 100 + ey * ey * 729) * 16 / (729 * 100), far = (fx * fx * 81 + fy * fy * 484) * 16 / (484 * 81);
     unsigned grain = beach_hash(x / 2U, y / 2U) & 3U;
     if (near + (int)dither / 2 + (int)grain < 14) return near < 5 ? BEACH_RGB(190, 60, 170) : BEACH_RGB(96, 32, 132);

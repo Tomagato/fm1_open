@@ -16,7 +16,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | OCT - / OCT + | Octave of the synth |
 | K1 to K4 | Synth: VOLUME, REVERB, DELAY, TEMPO. Drums: LEVEL, TUNE, DECAY of the last pad hit, TEMPO |
 | FX (tap) | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, FX LEVEL |
-| FX (hold) | Master FX window: twelve effects on the whole mix. White keys 1-12 hold an effect, black keys 1-11 latch it: crush, downsample, drive, fold, ring, chop, stutter, reverse, lowpass, highpass, freeze, warp. K1 DEPTH, K2 RATE. Latched effects stay on when you leave. Hold FX again or tap HOME to go back |
+| FX (hold) | Master FX tiles, laid over whatever is on screen in any mode, the games included. White keys 1-12 hold an effect, black keys 1-11 latch it: crush, downsample, drive, fold, ring, chop, stutter, reverse, lowpass, highpass, freeze, warp. K1 DEPTH, K2 RATE. Hold FX again or tap HOME and the tiles go; latched effects stay on and the mode underneath carries on |
 | ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
 | OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high), always in the chosen scale, and pushes the smoke, and so the effects, somewhere new. Any key drops a coin above it. K1 SMOKE, K2 SCALE, K3 number of COINS, K4 SPEED. The same three keys, or HOME, leave |
 | OP4 + OP5 together | Knives: a spinning target darts round the wall and any key throws a knife from above it. A hit plays a note, a figure or, on a bullseye, a ten-note run with drums and a glitch, all in the scale; a miss gets a rim shot. K1 SMOKE, K2 SCALE, K3 target SIZE, K4 target SPEED |
@@ -33,7 +33,7 @@ A one-page cheat sheet of every control: <https://tomagato.github.io/fm1_open/ch
 
 ## Reading the screen
 
-There are no numbers and no step grid on the main page. The loop is drawn as two orbits around the red star: drums on the inner one, the synth on the outer, one moon for every step that has something recorded, and a comet that runs round as the loop plays and flares when it hits a moon. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, effects level, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
+Nothing on the screen is written: no words, no numbers, no bars. The scene fills the whole display. The loop is two orbits around the red star, drums inside and synth outside, a moon for every recorded step and a comet for the playhead. Eight moons sit on the ground while the keys are drums and fill as their pads are hit. Sixteen lights along the bottom edge show the preset. Smoke shows how far the vape is up.
 
 ## Scales
 
