@@ -135,9 +135,10 @@ static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19,
 static const uint8_t pad_keys[8] = {1, 3, 5, 8, 10, 13, 15, 17};
 /* Screen and key order: BD SD CH OH CP RS TM CR, mapped onto the kit's pads. */
 static const uint8_t lane_pad[8] = {0, 1, 6, 7, 3, 2, 4, 5}, pad_lane[8] = {0, 1, 5, 4, 6, 7, 2, 3};
+/* Terms Of Service colours: the logo's red, white and blue, and tints of them. */
 static const uint16_t lane_color[8] = {
-    BEACH_RGB(255, 100, 110), BEACH_RGB(255, 150, 70),  BEACH_RGB(255, 208, 96),  BEACH_RGB(255, 236, 170),
-    BEACH_RGB(240, 110, 180), BEACH_RGB(180, 130, 250), BEACH_RGB(100, 150, 255), BEACH_RGB(70, 214, 200)};
+    BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
+    BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BEACH 909";
 static const char help[] = "EDIT:DELETE FX:KNOBS ENV:SMOKE LFO:GAME";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
@@ -146,6 +147,10 @@ static unsigned track = KIT, cursor, selected_note, drum, writing;
 static unsigned kit_ready, knob_bank, bar, follow, armed, edit_fired, ble_was_linked;
 static uint32_t kit_retry, edit_since, scene_at, glo_since, seek_until, seek_at;
 static unsigned glo_fired, seeking;
+/* A held white key is a held step: K1-K4 edit that step until it is released. */
+static unsigned held_step = GROOVE_STEPS, held_key, held_fresh, held_edited, arp_fired, frame_repeat;
+static uint32_t arp_since;
+static uint8_t frame_held[4];
 static unsigned view_page = PAGE_SPLASH, last_step;
 static uint32_t splash_at, glitch_until, vape_at;
 /* Scene effects: a torn, colour-split frame on snare and clap hits, and the
@@ -347,16 +352,19 @@ static void status_draw(void)
     if (sig == cache->status) return;
     cache->status = sig;
     paint_fill(0, 112, FM1_SCREEN_WIDTH, 16, BACK);
-    if (v->playing)
-        for (unsigned i = 0; i < 4; ++i) paint_fill(4 + 2 * i, 114 + 2 * i, 2, 13 - 4 * i, GREEN);
-    else
-        paint_fill(4, 115, 8, 10, DIM);
+    /* Transport light: the Terms Of Service pulse, red while playing. */
+    paint_fill(2, 114, 12, 11, v->playing ? lane_color[0] : DIM);
+    paint_fill(3, 120, 3, 2, BACK);
+    paint_fill(5, 117, 2, 5, BACK);
+    paint_fill(5, 117, 6, 2, BACK);
+    paint_fill(9, 117, 2, 5, BACK);
+    paint_fill(10, 120, 3, 2, BACK);
     char name[10] = {0};
     strncpy(name, drum_title(drum), 9);
     text(16, 113, name, 2, lane_color[pad_lane[drum]], BACK);
     for (unsigned b = 0; b < 4; ++b) {
         paint_fill(128 + b * 8, 116, 6, 7, b == bar ? TEXT : b < bars ? INK_LANE : INK);
-        if (v->playing && b == v->play_step / 16U) paint_fill(128 + b * 8, 124, 6, 2, GREEN);
+        if (v->playing && b == v->play_step / 16U) paint_fill(128 + b * 8, 124, 6, 2, lane_color[0]);
     }
     char tempo[12] = "EXT";
     if (!v->clock_mode || v->tempo) decimal(tempo, v->tempo, 3);
@@ -421,6 +429,21 @@ static void knobs_draw(void)
 {
     static const char *const labels[2][4] = {{"LEVEL", "TUNE", "DECAY", "TEMPO"},
                                              {"REVERB", "DELAY", "FEEDBACK", "SWING"}};
+    if (held_step < GROOVE_STEPS) {
+        static const char *const names[4] = {"VELOCITY", "CHANCE", "LOCK", "VALUE"};
+        static const char *const targets[5] = {"NONE", "LEVEL", "TUNE", "DECAY", "OTHER"};
+        unsigned lock = frame_held[2], target = !lock ? 0 : (lock - 1U) / SAMPLE_DRUM_PARAMS == drum &&
+            (lock - 1U) % SAMPLE_DRUM_PARAMS < 3 ? (lock - 1U) % SAMPLE_DRUM_PARAMS + 1U : 4;
+        for (unsigned col = 0; col < 4; ++col) {
+            char value[12];
+            decimal(value, col == 1 ? (frame_held[1] ? frame_held[1] * 100 / 8 : 100) : frame_held[col], 1);
+            if (col == 1) strcat(value, "%");
+            if (col == 2) strcpy(value, targets[target]);
+            if (col == 3 && !lock) strcpy(value, "--");
+            knob(col, names[col], value);
+        }
+        return;
+    }
     int values[4];
     if (knob_bank) {
         values[0] = frame_sends[0]; values[1] = frame_sends[1];
@@ -442,7 +465,8 @@ static void knobs_draw(void)
 static void hint_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 231) return;
-    const char *line = notice ? notice : frame_samples != 2 ? "NO SAMPLES: WRITE THE KIT FROM THE WEB" : help;
+    const char *line = notice ? notice : held_step < GROOVE_STEPS ? "STEP HELD: K1-K4 EDIT THIS STEP ONLY"
+        : frame_samples != 2 ? "NO SAMPLES: WRITE THE KIT FROM THE WEB" : help;
     uint32_t sig = signature(notice != NULL, line, (unsigned)strlen(line));
     if (sig == cache->hint) return;
     cache->hint = sig;
@@ -568,7 +592,7 @@ static void leds(void)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
     bits = ((bar > 0) << OCT_DOWN) | ((bar + 1U < bars) << OCT_UP) | (knob_bank << FX) | (1U << HOME)
-        | (frame_dirty << SAVE) | (vape_on << ENV) | ((view_page == PAGE_GAME) << LFO) | ((v->clock_mode != 0) << ARP) | (follow << SEQ)
+        | (frame_dirty << SAVE) | (vape_on << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP) | (follow << SEQ)
         | ((v->playing != 0) << PLAY) | ((writing || (armed && blink)) << REC);
     changed = bits ^ button_led_cache;
     for (unsigned key = 0; key < 14; ++key)
@@ -593,6 +617,13 @@ static void draw(void)
     groove_effects_get(frame_effects);
     frame_swing = groove_sequence_setting(0);
     frame_samples = groove_samples_status();
+    frame_repeat = groove_arp_enabled(KIT) != 0;
+    if (held_step < GROOVE_STEPS) {
+        frame_held[0] = (uint8_t)groove_step_setting(KIT, held_step, 0);
+        frame_held[1] = (uint8_t)groove_step_setting(KIT, held_step, 2);
+        frame_held[2] = (uint8_t)groove_step_setting(KIT, held_step, 5);
+        frame_held[3] = (uint8_t)groove_step_setting(KIT, held_step, 6);
+    }
     frame_dirty = groove_project_dirty() != 0;
     /* The stars drift in time; the red star swells on every quarter note. */
     if (frame_time - scene_at >= (frame_view.playing ? 140U : 320U)) {
@@ -864,9 +895,30 @@ static void vape_control(const struct fm1_controls *controls, uint32_t pressed)
         if (!vape_age) vape_age = 1;
     } else if (vape_on && !(controls->buttons & BUTTON(ENV))) vape_on = 0;
 }
+/* Per-step edits while a step is held: velocity, chance of playing, and one
+ * parameter lock (level, tune or decay of the selected drum, on this step only).
+ * A step keeps one velocity, chance and lock for all the drums on it. */
+static void step_knob(unsigned col, int turn, uint32_t now)
+{
+    int old = (int)groove_step_setting(KIT, held_step, col == 0 ? 0 : col == 1 ? 2 : col == 2 ? 5 : 6), r = 0;
+    held_edited = 1;
+    if (col == 0) {
+        int delta = encoder_delta(2, (int16_t)turn);
+        if (old + delta < 1) delta = 1 - old;
+        if (delta) r = groove_step_setting_edit(KIT, held_step, 0, delta);
+    } else if (col == 1) r = groove_step_setting_edit(KIT, held_step, 2, turn);
+    else if (col == 2) {
+        int base = (int)drum * SAMPLE_DRUM_PARAMS;
+        int index = old > base && old <= base + 3 ? old - base : 0;
+        index = clamp(index + (turn > 0) - (turn < 0), 0, 3);
+        int target = index ? base + index : 0;
+        if (target != old) r = groove_step_setting_edit(KIT, held_step, 5, target - old);
+    } else r = groove_step_setting_edit(KIT, held_step, 6, encoder_delta(5, (int16_t)turn));
+    if (r) say("LOCKS FULL: 16 PER PATTERN", now, 1500);
+}
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
-    uint32_t pressed = controls->buttons & ~previous_buttons;
+    uint32_t pressed = controls->buttons & ~previous_buttons, previous_arp = previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
@@ -941,10 +993,22 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     if (bar > 3) bar = 3;
 
     if (pressed & BUTTON(FX)) knob_bank ^= 1U;
-    if (pressed & BUTTON(ARP)) {
+    /* ARP is note repeat: each tap steps through four rates, then off. A held
+     * drum key then retriggers in time. Holding ARP swaps the clock source. */
+    if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
+    if ((controls->buttons & BUTTON(ARP)) && !arp_fired && now - arp_since >= 1000U) {
+        arp_fired = 1;
         unsigned external = groove_clock_mode() != GROOVE_CLOCK_MIDI;
         groove_settings_clock(external ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
         say(external ? "SYNC: MIDI CLOCK" : "SYNC: INTERNAL", now, 1500);
+    }
+    if ((previous_arp & ~controls->buttons & BUTTON(ARP)) && !arp_fired) {
+        static const char *const rates[4] = {"REPEAT: RATE 1", "REPEAT: RATE 2", "REPEAT: RATE 3", "REPEAT: RATE 4"};
+        if (!release_keys()) return;
+        if (!groove_arp_enabled(KIT)) groove_arp_set(KIT, 1);
+        else if (groove_arp_setting(KIT, 0) < 3) groove_arp_edit(KIT, 0, 1);
+        else { groove_arp_set(KIT, 0); groove_arp_edit(KIT, 0, -3); }
+        say(groove_arp_enabled(KIT) ? rates[groove_arp_setting(KIT, 0) & 3U] : "REPEAT OFF", now, 1500);
     }
     if (pressed & BUTTON(SAVE)) {
         int r = groove_project_save_slot(KIT_SLOT);
@@ -971,6 +1035,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     for (unsigned col = 0; col < 4; ++col) {
         int16_t turn = controls->encoders[2 + col];
         if (!turn) continue;
+        if (held_step < GROOVE_STEPS) { step_knob(col, turn, now); continue; }
         if (knob_bank) {
             if (col < 2) groove_sends_edit(KIT, col, turn);
             else if (col == 2) groove_effects_edit(2, encoder_delta(2 + col, turn));
@@ -981,7 +1046,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
             static const uint8_t parameter[3] = {SAMPLE_DRUM_LEVEL, SAMPLE_DRUM_TUNE, SAMPLE_DRUM_LENGTH};
             groove_tone_edit(KIT, drum, parameter[col], col == 1 ? turn : encoder_delta(2 + col, turn));
         }
-        if (!knob_bank && col == 3 && groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - ARP FOR INTERNAL", now, 2000);
+        if (!knob_bank && col == 3 && groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - HOLD ARP FOR INTERNAL", now, 2000);
     }
 
     /* Keys: black keys play and select drums, white keys write steps. */
@@ -1013,8 +1078,20 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
                 clear_step(bar * 16U + i);
                 edit_fired = 1;
                 say("STEP DELETED", now, 1200);
-            } else toggle_step(bar * 16U + i);
+            } else {
+                /* An empty step gets its trig at once so it can be edited while held;
+                 * a tap on an existing trig removes it on release. */
+                held_step = bar * 16U + i;
+                held_key = white_keys[i];
+                held_edited = 0;
+                held_fresh = !((groove_drum_steps(KIT, drum) >> held_step) & 1U);
+                if (held_fresh) toggle_step(held_step);
+            }
         }
+    if (held_step < GROOVE_STEPS && !(keys & (1U << held_key))) {
+        if (!held_fresh && !held_edited) toggle_step(held_step);
+        held_step = GROOVE_STEPS;
+    }
     selected_note = groove_pad_note(KIT, drum);
 }
 void groove_screen_init(void)
@@ -1022,6 +1099,7 @@ void groove_screen_init(void)
     track = KIT;
     cursor = drum = writing = kit_ready = knob_bank = bar = armed = edit_fired = ble_was_linked = seeking = 0;
     follow = 1;
+    held_step = GROOVE_STEPS;
     kit_retry = scene_at = splash_at = fm1_millis();
     view_page = PAGE_SPLASH;
     last_step = glitch = vape_on = vape_age = vape_fade = 0;

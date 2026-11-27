@@ -9,7 +9,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | Control | Beach 909 |
 | --- | --- |
 | Black keys F#3 to A#4 (first eight) | Play and select a drum: BD, SD, CH, OH, CP, RS, TM, CR |
-| White keys (sixteen) | Toggle the selected drum's steps in the bar on screen |
+| White keys (sixteen) | Tap to add or remove a step for the selected drum in the bar on screen |
 | PLAY / REC | Start or stop / record the black keys into the running pattern |
 | K1 to K4 | LEVEL, TUNE, DECAY of the selected drum, TEMPO |
 | FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, SWING |
@@ -21,7 +21,9 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | EDIT (hold 2 s) | Delete the whole pattern |
 | ENV (hold) | Smoke: the wisps drifting through space thicken and a cloud rolls across the sky (animation only) |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
-| ARP | Internal tempo or external MIDI clock |
+| Hold a white key + K1 to K4 | Edit that step only: VELOCITY, CHANCE of playing, parameter LOCK (level, tune or decay of the selected drum) and its VALUE. A step keeps one velocity, chance and lock for all the drums on it; a pattern holds 16 locks |
+| ARP (tap) | Note repeat: four rates, then off. A held drum key retriggers in time |
+| ARP (hold) | Internal tempo or external MIDI clock |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the pattern (project slot 16; other slots are never written) |
 | MASTER | Output volume |
