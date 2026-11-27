@@ -16,6 +16,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
 | EDIT (hold) | Clear the selected drum |
 | ARP | Internal tempo or external MIDI clock |
+| GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the pattern (project slot 16; other slots are never written) |
 | MASTER | Output volume |
 

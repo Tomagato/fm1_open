@@ -143,7 +143,8 @@ static const char help[] = "FX:KNOBS SCL:BARS EDIT:CLEAR ARP:SYNC";
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
 static unsigned kit_ready, knob_bank, bar, follow, armed, edit_fired, ble_was_linked;
-static uint32_t kit_retry, edit_since, scene_at;
+static uint32_t kit_retry, edit_since, scene_at, glo_since, seek_until, seek_at;
+static unsigned glo_fired, seeking;
 static unsigned scene_phase, scene_pulse;
 static const char *notice;
 static uint32_t notice_until;
@@ -574,7 +575,56 @@ static void clear_lane(void)
     for (unsigned step = 0; step < GROOVE_STEPS; ++step)
         if ((steps >> step) & 1U) groove_sequence_edit(KIT, step, groove_pad_note(KIT, drum), 0);
 }
-static void apply_controls(const struct fm1_controls *controls, uint32_t now)
+/* GLO is the one Bluetooth MIDI control. A tap shows the link. A hold closes
+ * an open link; without one it swaps who connects: a phone or computer finds
+ * FM1 (the default), or FM1 searches for a minute and joins the first
+ * Bluetooth MIDI controller it finds. */
+static void bluetooth_control(const struct fm1_controls *controls, uint32_t pressed,
+                              const struct fm1_ble_status *ble, uint32_t now)
+{
+    static const char *const states[] = {
+        "BLUETOOTH MIDI: OFF", "BLUETOOTH MIDI: IDLE", "BLUETOOTH MIDI: WAITING FOR HOST",
+        "BLUETOOTH MIDI: SEARCHING", "BLUETOOTH MIDI: CONNECTING", "BLUETOOTH MIDI: CONNECTING",
+        "BLUETOOTH MIDI: CONNECTED", "BLUETOOTH MIDI: CONNECTED", "BLUETOOTH MIDI: CLOSING"};
+    unsigned central = groove_settings_role_value() == FM1_BLE_CENTRAL;
+    if (pressed & BUTTON(GLO)) {
+        glo_since = now;
+        glo_fired = 0;
+        struct fm1_bluetooth_status radio = {0};
+        fm1_bluetooth_get_status(&radio);
+        say(!radio.ready ? "BLUETOOTH: NOT READY" : states[ble->state <= FM1_BLE_DISCONNECTING ? ble->state : 0], now, 2000);
+    }
+    if ((controls->buttons & BUTTON(GLO)) && !glo_fired && now - glo_since >= 1000U) {
+        glo_fired = 1;
+        if (ble->state >= FM1_BLE_CONNECTING && ble->state <= FM1_BLE_READY) {
+            (void)fm1_ble_disconnect();
+            say("BLUETOOTH MIDI: DISCONNECT", now, 2000);
+        } else {
+            central = !central;
+            (void)groove_settings_radio(groove_settings_radio_flags() | GROOVE_RADIO_ON,
+                                        central ? FM1_BLE_CENTRAL : FM1_BLE_PERIPHERAL);
+            seek_until = now + 60000U;
+            seek_at = now;
+            seeking = central;
+            say(central ? "BLUETOOTH: FM1 SEARCHES FOR MIDI" : "BLUETOOTH: FM1 WAITS FOR A HOST", now, 2500);
+        }
+    }
+    if (seeking && (!central || (int32_t)(seek_until - now) <= 0 || ble->state >= FM1_BLE_CONNECTED)) seeking = 0;
+    if (seeking && ble->state == FM1_BLE_IDLE && !ble->pending && now - seek_at >= 3000U) {
+        seek_at = now;
+        for (unsigned i = 0; i < ble->count && i < FM1_BLE_MAX_DEVICES; ++i) {
+            struct fm1_ble_device device;
+            memset(&device, 0, sizeof device);
+            (void)fm1_ble_get_device(i, &device);
+            if (device.midi) {
+                (void)fm1_ble_connect(i);
+                return;
+            }
+        }
+        (void)fm1_ble_scan();
+    }
+}
+static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
     uint32_t pressed = controls->buttons & ~previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
@@ -588,6 +638,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now)
         retry_reset = 0;
         memset(key_note, 0xff, sizeof key_note);
     }
+    bluetooth_control(controls, pressed, ble, now);
     kit_prepare(now);
     if (!kit_ready) return;
     read_encoders(controls, now, pressed != 0);
@@ -693,7 +744,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now)
 void groove_screen_init(void)
 {
     track = KIT;
-    cursor = drum = writing = kit_ready = knob_bank = bar = armed = edit_fired = ble_was_linked = 0;
+    cursor = drum = writing = kit_ready = knob_bank = bar = armed = edit_fired = ble_was_linked = seeking = 0;
     follow = 1;
     kit_retry = scene_at = fm1_millis();
     scene_phase = scene_pulse = 0;
@@ -744,7 +795,7 @@ void groove_screen_control(void)
     ble_was_linked = linked;
     unsigned input_changed = master_changed || controls.buttons != previous_buttons ||
                              controls.keys != previous_keys || encoder_active(controls.encoders);
-    apply_controls(&controls, now);
+    apply_controls(&controls, now, &ble);
     /* Input changes do not wait for the animation timer. LCD work is bounded
      * separately and continues on later polls, even between animation frames. */
     if (now - frame_ms >= 33U || input_changed || saved_cache.shown == ~0U) {
