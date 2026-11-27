@@ -1,5 +1,7 @@
 # Beach 909 for M-VAVE FM-1
 
+A Mizu Records release. Terms of use: [TERMS.md](TERMS.md).
+
 A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art sunset.
 
 The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loaded with a 909-style drum kit. The kit is synthesized (oscillators and noise, `web/synth/demo_bank.h`); it contains no recordings. The stock firmware fills its Flash slot to within a few hundred bytes, so the multi-page FM1 Open panel (DX7/303/808 editors, mixer, Bluetooth and MIDI menus) is not in this build. The engines, MIDI input, USB audio and the workbench transfers are unchanged.
@@ -15,6 +17,9 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | SCL | Pattern length, 1 to 4 bars |
 | OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
 | EDIT (hold) | Clear the selected drum |
+| ENV (hold) | Vapor: a cloud drifts over the sunset and the kit drowns in reverb until you let go |
+| LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
+| HOME (hold) | Terms of use |
 | ARP | Internal tempo or external MIDI clock |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the pattern (project slot 16; other slots are never written) |
@@ -25,7 +30,7 @@ The kit also answers MIDI notes on channel 10.
 ## Install
 
 1. Back up projects and samples with the workbench you already use.
-2. Open the Beach 909 workbench page, <https://tomagato.github.io/fm1_open/>, in Chrome or Edge, connect the FM-1 over USB and update. The page is published by the build workflow; the same file is in the `fm1-workbench` build artifact and also works from `localhost`.
+2. Open <https://tomagato.github.io/fm1_open/> and follow it to the install page in Chrome or Edge, connect the FM-1 over USB and update. The page is published by the build workflow; the same file is in the `fm1-workbench` build artifact and also works from `localhost`.
 3. On the page's sample tab, load the built-in samples and write them to the device. This replaces the sample bank on the device with the 909 kit; until then the screen shows `NO SAMPLES` or plays the samples that are already there.
 
 The same page restores the original M-VAVE V15 firmware (`sdk/firmware/FM-1_015.fwsc`). This build has not been validated on hardware by its author; use it at your own risk.

@@ -113,6 +113,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
       - uses: actions/download-artifact@v4
         with:
           name: fm1-workbench
@@ -123,10 +126,10 @@ jobs:
           path: firmware
       - name: Assemble site
         run: |
-          cp site/FM1-Official-Open-Source.html site/index.html
+          cp repo/site/index.html repo/TERMS.md repo/LICENSE.md repo/THIRD_PARTY.md site/
           cp firmware/generated/FM1_OFFICIAL_OPEN.fwsc site/
           touch site/.nojekyll
-          (cd site && sha256sum index.html FM1_OFFICIAL_OPEN.fwsc >> SHA256SUMS.txt)
+          (cd site && sha256sum FM1_OFFICIAL_OPEN.fwsc >> SHA256SUMS.txt)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

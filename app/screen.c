@@ -139,12 +139,23 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(255, 100, 110), BEACH_RGB(255, 150, 70),  BEACH_RGB(255, 208, 96),  BEACH_RGB(255, 236, 170),
     BEACH_RGB(240, 110, 180), BEACH_RGB(180, 130, 250), BEACH_RGB(100, 150, 255), BEACH_RGB(70, 214, 200)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "FX:KNOBS SCL:BARS EDIT:CLEAR ARP:SYNC";
+static const char help[] = "FX:KNOBS SCL:BARS ENV:VAPE LFO:GAME";
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_TERMS, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
 static unsigned kit_ready, knob_bank, bar, follow, armed, edit_fired, ble_was_linked;
 static uint32_t kit_retry, edit_since, scene_at, glo_since, seek_until, seek_at;
 static unsigned glo_fired, seeking;
+static unsigned view_page = PAGE_SPLASH, home_fired, last_step;
+static uint32_t splash_at, home_since, glitch_until, vape_at;
+/* Scene effects: a torn, colour-split frame on snare and clap hits, and the
+ * vapor cloud blown by ENV. Both are read by the band painter. */
+static unsigned glitch, vape_on, vape_age, vape_fade, vape_saved, vape_clean;
+/* Tide Blocks: a small falling-block game that runs while the pattern plays. */
+static uint8_t game_cells[GAME_H][GAME_W];
+static struct { int x, y; unsigned kind, turn; } game_piece;
+static unsigned game_lines, game_over;
+static uint32_t game_random, game_fall_at;
 static unsigned scene_phase, scene_pulse;
 static const char *notice;
 static uint32_t notice_until;
@@ -161,8 +172,8 @@ static uint8_t frame_pots[GROOVE_TONE_PARAMS], frame_sends[2], frame_effects[4];
 static unsigned frame_step_drums, frame_swing, frame_samples, frame_dirty;
 struct draw_cache {
     unsigned shown;
-    uint32_t scene, sea, sun, status, hint, foot[4], lane[8];
-    uint8_t cell[8][16];
+    uint32_t scene, sea, sun, effects, status, hint, foot[4], lane[8];
+    uint8_t cell[8][16], game[GAME_H][GAME_W];
 };
 static struct draw_cache saved_cache, band_cache, *cache = &saved_cache;
 static uint32_t led_cache;
@@ -246,9 +257,35 @@ static void say(const char *message, uint32_t now, unsigned ms)
 }
 
 /* ---- Drawing ---------------------------------------------------------- */
+static uint16_t scene_pixel(unsigned x, unsigned y)
+{
+    unsigned torn = 0;
+    if (glitch) {
+        unsigned h = beach_hash(y / 2U, glitch);
+        if (h % 5U == 0) {
+            x = (x + 4U + (h >> 8) % 20U) % BEACH_W;
+            torn = 1U + ((h >> 4) & 1U);
+        }
+    }
+    if (vape_age)
+        for (int k = 0; k < 4; ++k) {
+            int dx = (int)x - (16 + k * 13 + (int)vape_age * 2), dy = (int)y - (47 - k * 6 - (int)vape_age);
+            int r = 5 + k * 2 + (int)vape_age / 3, d = dx * dx + dy * dy;
+            unsigned grain = beach_hash(x + vape_age, y) & 7U;
+            if (d <= r * r && (unsigned)(d * 16 / (r * r)) + 15U - vape_fade < 11U + grain)
+                return d * 2 < r * r ? BEACH_RGB(246, 236, 250) : BEACH_RGB(206, 178, 226);
+        }
+    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse);
+    if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
+    else if (torn == 2) color |= 0xf81fU;
+    return color;
+}
 static void scene_draw(void)
 {
+    uint32_t effects = glitch | (vape_age << 8) | (vape_fade << 16);
     if (!paint_rendering) {
+        if (cache->effects != effects) cache->scene = ~0U;
+        cache->effects = effects;
         if (cache->scene != 1) {
             cache->scene = 1;
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
@@ -272,7 +309,7 @@ static void scene_draw(void)
         for (unsigned col = paint_x; col < paint_end; ++col) {
             if ((col >> 1) != last) {
                 last = col >> 1;
-                color = beach_scene_pixel(last, row >> 1, scene_phase, scene_pulse);
+                color = scene_pixel(last, row >> 1);
             }
             out[col - paint_x] = color;
         }
@@ -404,18 +441,111 @@ static void hint_draw(void)
     paint_fill(0, 231, FM1_SCREEN_WIDTH, 7, BACK);
     text(4, 231, line, 1, notice || frame_samples != 2 ? AMBER : DIM, BACK);
 }
+/* Mizu Records wordmark: the label's name in the panel font, jittered. */
+static void splash_draw(void)
+{
+    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
+    static const uint16_t tint[4] = {TEXT, 0x07ff, 0xf81f, TEXT};
+    unsigned jitter = (frame_time / 90U) & 7U, shift = jitter == 2 ? 3U : jitter == 5 ? 0U : 1U;
+    if (cache->status == jitter) return;
+    cache->status = jitter;
+    paint_fill(0, 118, FM1_SCREEN_WIDTH, 60, BACK);
+    text(69 + shift * 3, 120, "MIZU", 4, tint[jitter & 3U], BACK);
+    text(80 - shift * 2, 156, "RECORDS", 2, tint[(jitter + 1U) & 3U], BACK);
+    if (cache->hint == 1) return;
+    cache->hint = 1;
+    text(66, 186, kit_name, 2, lane_color[0], BACK);
+    text(48, 212, "FM1 OPEN " FM1_RELEASE_VERSION " - UNOFFICIAL", 1, DIM, BACK);
+    text(54, 226, "HOLD HOME FOR THE TERMS", 1, DIM, BACK);
+}
+static void terms_draw(void)
+{
+    static const char *const lines[] = {
+        "BEACH 909 IS FREE SOFTWARE UNDER GPLV3", "WITH THE FM1 SDK LINKING EXCEPTION.",
+        "NO WARRANTY. FLASHING IS AT YOUR OWN",   "RISK AND MAY ERASE DATA OR STOP THE",
+        "DEVICE FROM STARTING.",                  "UNOFFICIAL: NOT MADE OR ENDORSED BY",
+        "M-VAVE OR ROLAND.",                      "THE MIZU RECORDS NAME AND MARK ARE",
+        "NOT LICENSED BY THE GPL.",               "FULL TERMS: TERMS.MD WITH THE SOURCE.",
+        "ANY BUTTON: BACK"};
+    if (cache->status == 1) return;
+    cache->status = 1;
+    text(48, 114, "TERMS OF USE", 2, lane_color[2], BACK);
+    for (unsigned i = 0; i < sizeof lines / sizeof lines[0]; ++i)
+        text(4, 132 + i * 9, lines[i], 1, i == 10 ? DIM : TEXT, BACK);
+}
+static const struct { uint8_t size, count; int8_t cell[4][2]; } game_shapes[6] = {
+    {2, 2, {{0, 0}, {1, 0}}},                 {3, 3, {{0, 1}, {1, 1}, {2, 1}}},
+    {2, 3, {{0, 0}, {0, 1}, {1, 1}}},         {2, 4, {{0, 0}, {1, 0}, {0, 1}, {1, 1}}},
+    {3, 4, {{1, 0}, {0, 1}, {1, 1}, {2, 1}}}, {3, 4, {{0, 0}, {0, 1}, {1, 1}, {2, 1}}}};
+/* Board position of one block of the falling piece. */
+static void game_block(unsigned index, int x, int y, unsigned turn, int *column, int *row)
+{
+    const unsigned kind = game_piece.kind;
+    int cx = game_shapes[kind].cell[index][0], cy = game_shapes[kind].cell[index][1];
+    for (unsigned i = 0; i < turn; ++i) {
+        int next = game_shapes[kind].size - 1 - cy;
+        cy = cx;
+        cx = next;
+    }
+    *column = x + cx;
+    *row = y + cy;
+}
+static void game_draw(void)
+{
+    if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
+    uint8_t board[GAME_H][GAME_W];
+    memcpy(board, game_cells, sizeof board);
+    if (!game_over)
+        for (unsigned i = 0; i < game_shapes[game_piece.kind].count; ++i) {
+            int column, row;
+            game_block(i, game_piece.x, game_piece.y, game_piece.turn, &column, &row);
+            if (row >= 0 && row < GAME_H && column >= 0 && column < GAME_W) board[row][column] = (uint8_t)(game_piece.kind + 1U);
+        }
+    uint32_t sig = game_lines | (game_over << 16);
+    if (sig != cache->status) {
+        cache->status = sig;
+        paint_fill(0, 116, 86, 112, BACK);
+        paint_fill(154, 116, 86, 112, BACK);
+        paint_fill(86, 116, 2, 112, INK_LANE);
+        paint_fill(152, 116, 2, 112, INK_LANE);
+        text(6, 120, "TIDE", 2, lane_color[7], BACK);
+        text(6, 138, "BLOCKS", 2, lane_color[4], BACK);
+        text(6, 170, "LINES", 1, DIM, BACK);
+        char lines[12];
+        decimal(lines, (int)game_lines, 1);
+        text(6, 182, lines, 3, TEXT, BACK);
+        static const char *const keys[] = {"OCT: MOVE", "SEQ: TURN", "REC: DROP", "PLAY: BEAT", "LFO: EXIT"};
+        for (unsigned i = 0; i < 5; ++i) text(162, 120 + i * 11, keys[i], 1, DIM, BACK);
+        if (game_over) {
+            text(162, 190, "WIPEOUT", 1, AMBER, BACK);
+            text(162, 202, "REC: AGAIN", 1, AMBER, BACK);
+        }
+    }
+    for (unsigned row = 0; row < GAME_H; ++row)
+        for (unsigned column = 0; column < GAME_W; ++column) {
+            if (board[row][column] == cache->game[row][column]) continue;
+            cache->game[row][column] = board[row][column];
+            paint_fill(88 + column * 8, 116 + row * 8, 8, 8, BACK);
+            paint_fill(88 + column * 8, 116 + row * 8, 7, 7, board[row][column] ? lane_color[board[row][column] - 1U] : INK);
+        }
+}
 static void draw_page(void)
 {
-    if (cache->shown != 1) {
+    if (cache->shown != view_page) {
         memset(cache, 0xff, sizeof *cache);
-        cache->shown = 1;
+        cache->shown = view_page;
         paint_fill(0, SCENE_ROWS, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT - SCENE_ROWS, BACK);
     }
     scene_draw();
-    status_draw();
-    grid_draw();
-    knobs_draw();
-    hint_draw();
+    if (view_page == PAGE_SPLASH) splash_draw();
+    else if (view_page == PAGE_TERMS) terms_draw();
+    else if (view_page == PAGE_GAME) game_draw();
+    else {
+        status_draw();
+        grid_draw();
+        knobs_draw();
+        hint_draw();
+    }
 }
 static void leds(void)
 {
@@ -434,7 +564,7 @@ static void leds(void)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
     bits = ((bar > 0) << OCT_DOWN) | ((bar + 1U < bars) << OCT_UP) | (knob_bank << FX) | (1U << HOME)
-        | (frame_dirty << SAVE) | ((v->clock_mode != 0) << ARP) | (follow << SEQ)
+        | (frame_dirty << SAVE) | (vape_on << ENV) | ((view_page == PAGE_GAME) << LFO) | ((v->clock_mode != 0) << ARP) | (follow << SEQ)
         | ((v->playing != 0) << PLAY) | ((writing || (armed && blink)) << REC);
     changed = bits ^ button_led_cache;
     for (unsigned key = 0; key < 14; ++key)
@@ -466,6 +596,23 @@ static void draw(void)
         ++scene_phase;
     }
     scene_pulse = frame_view.playing && !(frame_view.play_step & 3U);
+    /* Snare and clap tear the picture for a moment; the splash never settles. */
+    unsigned step = frame_view.playing ? frame_view.play_step + 1U : 0;
+    if (step != last_step) {
+        last_step = step;
+        if (step && (frame_step_drums & 0x0aU)) { glitch = step; glitch_until = frame_time + 90U; }
+    }
+    if (view_page == PAGE_SPLASH) { glitch = 1U + (frame_time / 120U) % 250U; glitch_until = frame_time + 200U; }
+    if (glitch && (int32_t)(frame_time - glitch_until) >= 0) glitch = 0;
+    if ((vape_on || vape_age) && frame_time - vape_at >= 110U) {
+        vape_at = frame_time;
+        if (vape_on) { vape_fade = 15; if (vape_age < 14) ++vape_age; }
+        else {
+            ++vape_age;
+            vape_fade = vape_fade > 2 ? vape_fade - 2U : 0;
+            if (!vape_fade) vape_age = 0;
+        }
+    }
     paint_priority = 0;
     cache = &saved_cache;
     draw_page();
@@ -624,6 +771,90 @@ static void bluetooth_control(const struct fm1_controls *controls, uint32_t pres
         (void)fm1_ble_scan();
     }
 }
+static int game_fits(int x, int y, unsigned turn)
+{
+    for (unsigned i = 0; i < game_shapes[game_piece.kind].count; ++i) {
+        int column, row;
+        game_block(i, x, y, turn, &column, &row);
+        if (column < 0 || column >= GAME_W || row >= GAME_H || (row >= 0 && game_cells[row][column])) return 0;
+    }
+    return 1;
+}
+static void game_spawn(void)
+{
+    game_random = game_random * 1664525U + 1013904223U;
+    game_piece.kind = (game_random >> 16) % 6U;
+    game_piece.turn = 0;
+    game_piece.x = GAME_W / 2 - 1;
+    game_piece.y = 0;
+    if (!game_fits(game_piece.x, 0, 0)) game_over = 1;
+}
+static void game_reset(uint32_t now)
+{
+    memset(game_cells, 0, sizeof game_cells);
+    game_lines = game_over = 0;
+    game_random ^= now * 2654435761U;
+    game_fall_at = now;
+    game_spawn();
+}
+static void game_land(void)
+{
+    for (unsigned i = 0; i < game_shapes[game_piece.kind].count; ++i) {
+        int column, row;
+        game_block(i, game_piece.x, game_piece.y, game_piece.turn, &column, &row);
+        if (row >= 0) game_cells[row][column] = (uint8_t)(game_piece.kind + 1U);
+    }
+    for (int row = GAME_H - 1; row >= 0; --row) {
+        unsigned full = 1;
+        for (unsigned column = 0; column < GAME_W; ++column) full &= game_cells[row][column] != 0;
+        if (!full) continue;
+        memmove(game_cells[1], game_cells[0], (size_t)row * GAME_W);
+        memset(game_cells[0], 0, GAME_W);
+        ++game_lines;
+        ++row;
+    }
+    game_spawn();
+}
+static void game_control(const struct fm1_controls *controls, uint32_t pressed, uint32_t now)
+{
+    if (game_over) {
+        if (pressed & BUTTON(REC)) game_reset(now);
+        return;
+    }
+    int move = controls->encoders[0] + controls->encoders[2] + ((pressed >> OCT_UP) & 1) - ((pressed >> OCT_DOWN) & 1);
+    move = clamp(move, -1, 1);
+    if (move && game_fits(game_piece.x + move, game_piece.y, game_piece.turn)) game_piece.x += move;
+    if (((pressed & BUTTON(SEQ)) || controls->encoders[6] || controls->encoders[3]) &&
+        game_fits(game_piece.x, game_piece.y, (game_piece.turn + 1U) & 3U))
+        game_piece.turn = (game_piece.turn + 1U) & 3U;
+    if (pressed & BUTTON(REC)) {
+        while (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
+        game_land();
+        game_fall_at = now;
+        return;
+    }
+    if (now - game_fall_at < (game_lines < 30 ? 450U - game_lines * 10U : 150U)) return;
+    game_fall_at = now;
+    if (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
+    else game_land();
+}
+/* ENV blows vapor: the kit drowns in reverb while the button is held. */
+static void vape_control(const struct fm1_controls *controls, uint32_t pressed)
+{
+    if ((pressed & BUTTON(ENV)) && !vape_on) {
+        uint8_t sends[2];
+        groove_sends_get(KIT, sends);
+        vape_saved = sends[0];
+        vape_clean = !groove_project_dirty();
+        groove_sends_edit(KIT, 0, 15);
+        vape_on = 1;
+        vape_age = 1;
+    } else if (vape_on && !(controls->buttons & BUTTON(ENV))) {
+        groove_sends_edit(KIT, 0, (int)vape_saved - 15);
+        if (vape_clean) groove_project_clean();
+        vape_on = 0;
+    }
+}
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
     uint32_t pressed = controls->buttons & ~previous_buttons;
@@ -645,6 +876,34 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     struct groove_view view = {0};
     groove_get_view(KIT, cursor, &view);
     unsigned channel = groove_midi_input_channel(KIT);
+
+    /* Pages: splash at power-on, terms on a held HOME, the game on LFO. */
+    if (view_page == PAGE_SPLASH) {
+        if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
+        view_page = PAGE_KIT;
+    } else if (view_page == PAGE_TERMS) {
+        if (pressed) { view_page = PAGE_KIT; blocked_keys = controls->keys; }
+        return;
+    }
+    if (pressed & BUTTON(HOME)) { home_since = now; home_fired = 0; }
+    if ((controls->buttons & BUTTON(HOME)) && !home_fired && now - home_since >= 1000U) {
+        home_fired = 1;
+        if (!release_keys()) return;
+        view_page = PAGE_TERMS;
+        return;
+    }
+    vape_control(controls, pressed);
+    if (pressed & BUTTON(LFO)) {
+        if (!release_keys()) return;
+        view_page = view_page == PAGE_GAME ? PAGE_KIT : PAGE_GAME;
+        if (view_page == PAGE_GAME && (game_over || !game_random)) game_reset(now);
+        game_fall_at = now;
+    }
+    if (view_page == PAGE_GAME) {
+        if ((pressed & BUTTON(PLAY)) && !post(view.playing ? 0xfc : 0xfa, 0, 0, 1)) return;
+        game_control(controls, pressed, now);
+        return;
+    }
 
     /* Transport and live recording. */
     writing = groove_edit_recording();
@@ -688,7 +947,8 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         groove_settings_clock(external ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
         say(external ? "SYNC: MIDI CLOCK" : "SYNC: INTERNAL", now, 1500);
     }
-    if (pressed & BUTTON(SAVE)) {
+    if ((pressed & BUTTON(SAVE)) && vape_on) say("RELEASE ENV, THEN SAVE", now, 1500);
+    else if (pressed & BUTTON(SAVE)) {
         int r = groove_project_save_slot(KIT_SLOT);
         say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "PATTERN SAVED", now, 1500);
     }
@@ -746,7 +1006,9 @@ void groove_screen_init(void)
     track = KIT;
     cursor = drum = writing = kit_ready = knob_bank = bar = armed = edit_fired = ble_was_linked = seeking = 0;
     follow = 1;
-    kit_retry = scene_at = fm1_millis();
+    kit_retry = scene_at = splash_at = fm1_millis();
+    view_page = PAGE_SPLASH;
+    home_fired = last_step = glitch = vape_on = vape_age = vape_fade = 0;
     scene_phase = scene_pulse = 0;
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
     led_cache = button_led_cache = 0;
@@ -760,7 +1022,6 @@ void groove_screen_init(void)
     fm1_controls_init();
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
-    say("BEACH 909 - FM1 OPEN " FM1_RELEASE_VERSION, fm1_millis(), 3000);
     draw();
     paint_flush();
     frame_ms = fm1_millis();
@@ -857,6 +1118,7 @@ unsigned groove_screen_web_first(void) { return bar * 16U; }
 int groove_screen_web_step(unsigned step, unsigned toggle)
 {
     if (!kit_ready || step >= frame_view.sequence_length || toggle > 1) return -1;
+    view_page = PAGE_KIT;
     bar = step / 16U;
     follow = 0;
     if (toggle) toggle_step(step);

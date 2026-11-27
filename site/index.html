@@ -1,0 +1,89 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beach 909 · Mizu Records</title>
+<style>
+  :root { --night:#160c3a; --plum:#3a1662; --magenta:#c43474; --coral:#f06054; --orange:#fc963c; --sun:#ffce6e; --cyan:#46d6c8; --ink:#0b0718; --text:#f4ecf8; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; color:var(--text); background:var(--ink); font:16px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  .sky { position:relative; overflow:hidden; padding:72px 20px 0; text-align:center;
+    background:linear-gradient(var(--night) 0%,var(--plum) 28%,var(--magenta) 56%,var(--coral) 74%,var(--orange) 88%,var(--sun) 100%); }
+  .sun { width:220px; height:110px; margin:44px auto 0; border-radius:220px 220px 0 0;
+    background:repeating-linear-gradient(#0000 0 14px,var(--magenta) 14px 18px),linear-gradient(#fff4aa,var(--orange) 55%,#ff646e); }
+  .grid { height:150px; background:
+    linear-gradient(#160c3acc,#0b0718),
+    repeating-linear-gradient(90deg,#46d6c855 0 2px,#0000 2px 56px),
+    repeating-linear-gradient(#f0348855 0 2px,#0000 2px 26px);
+    background-color:#1a1250; border-top:2px solid var(--sun); }
+  .label { margin:0; font-size:clamp(40px,11vw,104px); font-weight:800; letter-spacing:.08em; line-height:1; position:relative; display:inline-block; }
+  .label::before,.label::after { content:attr(data-text); position:absolute; inset:0; mix-blend-mode:screen; }
+  .label::before { color:var(--cyan); animation:tear 2.6s steps(1) infinite; }
+  .label::after { color:#ff2f9e; animation:tear 2.6s steps(1) infinite reverse; }
+  @keyframes tear {
+    0%,100% { transform:none; clip-path:inset(0); }
+    8% { transform:translate(-5px,1px); clip-path:inset(12% 0 58% 0); }
+    10% { transform:translate(6px,-1px); clip-path:inset(62% 0 8% 0); }
+    12% { transform:none; clip-path:inset(0); }
+    55% { transform:translate(4px,0); clip-path:inset(40% 0 36% 0); }
+    57% { transform:translate(-3px,0); clip-path:inset(4% 0 80% 0); }
+    59% { transform:none; clip-path:inset(0); }
+  }
+  .records { margin:6px 0 0; letter-spacing:.62em; text-indent:.62em; font-size:clamp(14px,3.2vw,26px); }
+  h1 { margin:38px 0 0; font-size:clamp(22px,5vw,40px); letter-spacing:.14em; color:var(--ink); background:var(--sun); display:inline-block; padding:4px 16px; }
+  main { max-width:760px; margin:0 auto; padding:36px 20px 80px; }
+  .lead { font-size:18px; }
+  .actions { display:flex; flex-wrap:wrap; gap:12px; margin:26px 0 8px; }
+  a.button { text-decoration:none; font-weight:700; letter-spacing:.06em; padding:13px 20px; border:2px solid var(--cyan); color:var(--cyan); }
+  a.button.primary { background:var(--coral); border-color:var(--coral); color:var(--ink); }
+  a.button:hover,a.button:focus-visible { background:var(--sun); border-color:var(--sun); color:var(--ink); outline:none; }
+  h2 { margin:48px 0 12px; font-size:15px; letter-spacing:.3em; color:var(--cyan); border-bottom:1px solid #46d6c855; padding-bottom:8px; }
+  ol,ul { padding-left:22px; } li { margin:8px 0; }
+  a { color:var(--sun); }
+  .note { border-left:4px solid var(--coral); padding:10px 14px; background:#f0605418; }
+  footer { color:#b9a9cc; font-size:13px; margin-top:56px; }
+  @media (prefers-reduced-motion:reduce) { .label::before,.label::after { animation:none; display:none; } }
+</style>
+</head>
+<body>
+<header class="sky">
+  <p class="label" data-text="MIZU">MIZU</p>
+  <p class="records">RECORDS</p>
+  <div><h1>BEACH 909</h1></div>
+  <div class="sun" aria-hidden="true"></div>
+</header>
+<div class="grid" aria-hidden="true"></div>
+<main>
+  <p class="lead">A one-page 909-style drum machine for the M-VAVE FM-1: eight drums, sixteen steps, reverb and delay, a vapor button and a block game, under a pixel sunset.</p>
+  <p class="note">Unofficial firmware, not yet validated on hardware. Installing it is at your own risk. Read the terms below before you update.</p>
+  <div class="actions">
+    <a class="button primary" href="FM1-Official-Open-Source.html">Open the install page</a>
+    <a class="button" href="FM1_OFFICIAL_OPEN.fwsc" download>Download .fwsc</a>
+    <a class="button" href="https://github.com/Tomagato/fm1_open/tree/beach-909">Source</a>
+  </div>
+
+  <h2>INSTALL</h2>
+  <ol>
+    <li>Back up your projects and samples.</li>
+    <li>Connect the FM-1 by USB, open the install page in Chrome or Edge, and go to Device update.</li>
+    <li>Click Connect device, then Start update. On other firmware, choose Enable force flash and reconnect first.</li>
+    <li>In Projects &amp; sounds, write the built-in samples to the device to load the 909 kit.</li>
+  </ol>
+
+  <h2>TERMS OF USE</h2>
+  <p>By installing or using Beach 909 you accept these terms. They describe how the licences that already apply work in practice; they do not add restrictions to them.</p>
+  <ol>
+    <li><strong>Free software.</strong> The application source is licensed under the GNU GPL version 3 with the FM1 SDK linking exception. You may use, study, change and share it under that licence. The binary SDK and other bundled components keep their own terms. The full licences and notices are in the install page and in the source.</li>
+    <li><strong>No warranty.</strong> The firmware is provided as is, without warranty of any kind, as set out in sections 15 to 17 of the GPL.</li>
+    <li><strong>Flashing is at your own risk.</strong> Installing firmware can erase projects, samples and settings, and a failed or incompatible update can leave the device unable to start. The install page can restore the original M-VAVE V15 firmware, but recovery is not guaranteed.</li>
+    <li><strong>Unofficial.</strong> Beach 909 is not made, endorsed or supported by M-VAVE or by Roland. "909" describes the style of the drum kit, which is synthesized and contains no recordings.</li>
+    <li><strong>Name and mark.</strong> The Mizu Records name and wordmark identify this release. The GPL does not grant trademark rights: do not present a modified version as coming from Mizu Records.</li>
+    <li><strong>Your music is yours.</strong> Patterns and recordings you make with Beach 909 belong to you.</li>
+    <li><strong>Mandatory rights.</strong> Nothing here limits rights you have under law that cannot be excluded.</li>
+  </ol>
+  <footer>Beach 909 is a fork of FM1 Open by M-VAVE. Terms as published in TERMS.md with the source.</footer>
+</main>
+</body>
+</html>
