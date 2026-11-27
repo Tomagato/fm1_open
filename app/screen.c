@@ -2,7 +2,7 @@
 /* Beach 909 panel.
  * Modified from FM1 Open V14 app/screen.c, Copyright (c) 2026 M-VAVE.
  * Changed in November 2026 for the Beach 909 firmware: the multi-page
- * instrument UI was replaced by one drum-machine page with a sunset scene.
+ * instrument UI was replaced by one drum-machine page with a space scene.
  * The band painter, font and input helpers are kept from the original. */
 #include "instrument.h"
 #include "sampledrum.h"
@@ -300,10 +300,9 @@ static void scene_draw(void)
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
         } else {
             if (cache->sea != scene_phase) {
-                paint_mark(0, 44, FM1_SCREEN_WIDTH, SCENE_ROWS - 44); /* smoke and water */
-                if ((cache->sea ^ scene_phase) & ~3U) paint_mark(0, 0, FM1_SCREEN_WIDTH, 26); /* stars */
+                paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
             }
-            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(112, 0, 80, SEA_ROW);
+            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(116, 0, 80, SEA_ROW + 12);
         }
         cache->sea = scene_phase;
         cache->sun = scene_pulse | ((uint32_t)scene_mark << 1);
@@ -595,7 +594,7 @@ static void draw(void)
     frame_swing = groove_sequence_setting(0);
     frame_samples = groove_samples_status();
     frame_dirty = groove_project_dirty() != 0;
-    /* The water drifts in time; the sun swells on every quarter note. */
+    /* The stars drift in time; the red star swells on every quarter note. */
     if (frame_time - scene_at >= (frame_view.playing ? 140U : 320U)) {
         scene_at = frame_time;
         ++scene_phase;
