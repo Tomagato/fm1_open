@@ -17,7 +17,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | SCL | Pattern length, 1 to 4 bars |
 | OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
 | EDIT (hold) | Clear the selected drum |
-| ENV (hold) | Vapor: a cloud drifts over the sunset and the kit drowns in reverb until you let go |
+| ENV (hold) | Vape: a pixel vape pen appears on the beach and puffs a cloud across the sunset (animation only) |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
 | HOME (hold) | Terms of use |
 | ARP | Internal tempo or external MIDI clock |

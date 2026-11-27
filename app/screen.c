@@ -150,7 +150,7 @@ static unsigned view_page = PAGE_SPLASH, home_fired, last_step;
 static uint32_t splash_at, home_since, glitch_until, vape_at;
 /* Scene effects: a torn, colour-split frame on snare and clap hits, and the
  * vapor cloud blown by ENV. Both are read by the band painter. */
-static unsigned glitch, vape_on, vape_age, vape_fade, vape_saved, vape_clean;
+static unsigned glitch, vape_on, vape_age, vape_fade;
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
 static uint8_t game_cells[GAME_H][GAME_W];
 static struct { int x, y; unsigned kind, turn; } game_piece;
@@ -267,9 +267,19 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
+    if (vape_age) {
+        /* The pen lies on the sand: light, battery, tank, mouthpiece. */
+        if (y >= 44 && y <= 46 && x >= 18 && x <= 37) {
+            if (x == 18) return vape_on ? BEACH_RGB(90, 255, 240) : BEACH_RGB(40, 90, 100);
+            if (x >= 35) return y == 45 ? BEACH_RGB(30, 26, 44) : BEACH_RGB(14, 8, 30);
+            if (x >= 29) return y == 45 ? BEACH_RGB(255, 190, 110) : BEACH_RGB(200, 210, 230);
+            return y == 44 ? BEACH_RGB(236, 240, 250) : y == 45 ? BEACH_RGB(170, 180, 205) : BEACH_RGB(104, 110, 140);
+        }
+        if (vape_on && x == 17 && y == 45) return BEACH_RGB(200, 255, 250);
+    }
     if (vape_age)
         for (int k = 0; k < 4; ++k) {
-            int dx = (int)x - (16 + k * 13 + (int)vape_age * 2), dy = (int)y - (47 - k * 6 - (int)vape_age);
+            int dx = (int)x - (42 + k * 10 + (int)vape_age * 2), dy = (int)y - (43 - k * 6 - (int)vape_age);
             int r = 5 + k * 2 + (int)vape_age / 3, d = dx * dx + dy * dy;
             unsigned grain = beach_hash(x + vape_age, y) & 7U;
             if (d <= r * r && (unsigned)(d * 16 / (r * r)) + 15U - vape_fade < 11U + grain)
@@ -838,22 +848,14 @@ static void game_control(const struct fm1_controls *controls, uint32_t pressed, 
     if (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
     else game_land();
 }
-/* ENV blows vapor: the kit drowns in reverb while the button is held. */
+/* ENV is the vape: a pen appears on the beach and puffs a cloud while the
+ * button is held. Animation only; the sound is untouched. */
 static void vape_control(const struct fm1_controls *controls, uint32_t pressed)
 {
     if ((pressed & BUTTON(ENV)) && !vape_on) {
-        uint8_t sends[2];
-        groove_sends_get(KIT, sends);
-        vape_saved = sends[0];
-        vape_clean = !groove_project_dirty();
-        groove_sends_edit(KIT, 0, 15);
         vape_on = 1;
-        vape_age = 1;
-    } else if (vape_on && !(controls->buttons & BUTTON(ENV))) {
-        groove_sends_edit(KIT, 0, (int)vape_saved - 15);
-        if (vape_clean) groove_project_clean();
-        vape_on = 0;
-    }
+        if (!vape_age) vape_age = 1;
+    } else if (vape_on && !(controls->buttons & BUTTON(ENV))) vape_on = 0;
 }
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
@@ -947,8 +949,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         groove_settings_clock(external ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
         say(external ? "SYNC: MIDI CLOCK" : "SYNC: INTERNAL", now, 1500);
     }
-    if ((pressed & BUTTON(SAVE)) && vape_on) say("RELEASE ENV, THEN SAVE", now, 1500);
-    else if (pressed & BUTTON(SAVE)) {
+    if (pressed & BUTTON(SAVE)) {
         int r = groove_project_save_slot(KIT_SLOT);
         say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "PATTERN SAVED", now, 1500);
     }
