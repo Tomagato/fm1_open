@@ -147,7 +147,8 @@ enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, GAME_W = 8
 static unsigned drum;
 /* The loop: REC records what is played into a four-bar loop on the track the
  * keys are on. There is no grid; the loop is drawn as orbits around the star. */
-static unsigned writing, armed, rec_fired, orbit_shown;
+static unsigned writing, armed, rec_fired, orbit_shown, rec_wanted;
+static uint32_t playing_at, kit_revision;
 static uint8_t orbit_head[2] = {255, 255};
 static uint32_t rec_since;
 static struct groove_view frame_loop[2]; /* kit, synth */
@@ -929,19 +930,31 @@ static void kit_prepare(uint32_t now)
         if (!kit_ready) {
             kit_ready = 1;
             drum = 0;
-            writing = armed = 0;
+            writing = armed = rec_wanted = 0;
             groove_edit_record(0, KIT, 0);
-            /* Four-bar loops on both tracks, and everything soaked: both sends
-             * full on the drums and the synth, long reverb, delay close to
-             * self-oscillation, effects return full. The knobs can pull it back. */
+            kit_revision = ~groove_project_revision();
+        }
+        /* Every time a project lands in the workspace, set it up again. At
+         * power-on the saved pattern is loaded after the first setup, and one
+         * saved by an older build has a one-bar drum loop and quiet effects.
+         * Four-bar loops on both tracks, and everything soaked: both sends
+         * full on the drums and the synth, long reverb, delay close to
+         * self-oscillation, effects return full. The knobs can pull it back. */
+        if (kit_revision != groove_project_revision() || groove_sequence_length(KIT) != GROOVE_STEPS ||
+            groove_sequence_length(SYNTH) != GROOVE_STEPS) {
+            unsigned loaded = kit_revision != groove_project_revision();
+            kit_revision = groove_project_revision();
             groove_sequence_length_set(KIT, GROOVE_STEPS);
             groove_sequence_length_set(SYNTH, GROOVE_STEPS);
-            uint8_t effects[4];
-            groove_effects_get(effects);
-            for (unsigned i = 0; i < 4; ++i) groove_sends_edit(i < 2 ? KIT : SYNTH, i & 1U, 15);
-            groove_effects_edit(0, 127);
-            groove_effects_edit(2, FX_FEEDBACK_TOP - (int)effects[2]);
-            groove_effects_edit(3, 127);
+            if (loaded) {
+                uint8_t effects[4];
+                groove_effects_get(effects);
+                for (unsigned i = 0; i < 4; ++i) groove_sends_edit(i < 2 ? KIT : SYNTH, i & 1U, 15);
+                groove_effects_edit(0, 127);
+                groove_effects_edit(2, FX_FEEDBACK_TOP - (int)effects[2]);
+                groove_effects_edit(3, 127);
+                fx_applied = 0; /* the smoke macro starts again from these */
+            }
         }
         /* Settings left by other firmware must not silence the kit. */
         if (groove_track_role(KIT) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(KIT, GROOVE_TRACK_NORMAL);
@@ -1430,28 +1443,32 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     /* The loop. PLAY starts and stops it. REC records into it straight away,
      * starting it if it was stopped; REC held for three seconds empties it. */
     unsigned loop_track = synth_mode ? SYNTH : KIT;
-    writing = groove_edit_recording();
     if (pressed & BUTTON(PLAY)) {
         if (!post(view.playing ? 0xfc : 0xfa, 0, 0, 1)) return;
-        if (view.playing) armed = 0;
+        if (view.playing) rec_wanted = armed = 0;
     }
     if ((pressed & BUTTON(REC)) && view_page != PAGE_GAME) {
         rec_since = now;
         rec_fired = 0;
-        if (writing || armed) { writing = armed = 0; say("LOOP KEPT - PLAYING", now, 1200); }
-        else if (view.playing) { writing = 1; say("RECORDING", now, 1200); }
-        else if (post(0xfa, 0, 0, 1)) { armed = 1; say("RECORDING", now, 1200); }
+        if (rec_wanted || armed) rec_wanted = armed = 0;
+        else if (view.playing) rec_wanted = 1;
+        else if (post(0xfa, 0, 0, 1)) armed = 1;
     }
     if ((controls->buttons & BUTTON(REC)) && !rec_fired && view_page != PAGE_GAME && now - rec_since >= 3000U) {
         rec_fired = 1;
-        writing = armed = 0;
+        rec_wanted = armed = 0;
         groove_edit_record(0, loop_track, 0);
         (void)groove_edit_clear(KIT, 0, 2);
         (void)groove_edit_clear(SYNTH, 0, 2);
-        say("EVERYTHING DELETED", now, 2000);
     }
-    if (armed && view.playing) { armed = 0; writing = 1; }
-    else if (writing && !view.playing && !armed) writing = 0;
+    if (armed && view.playing) { armed = 0; rec_wanted = 1; }
+    /* Recording is the player's choice, not the engine's. It ends when REC is
+     * pressed again or the loop has really stopped (not on a momentary blip),
+     * and if the engine drops it by itself it is switched straight back on. */
+    if (view.playing || armed) playing_at = now;
+    if (rec_wanted && now - playing_at > 700U) rec_wanted = 0;
+    writing = rec_wanted;
+    groove_edit_record(rec_wanted && view.playing, loop_track, 0);
     groove_edit_record(writing, loop_track, 0);
 
     /* FX: a tap swaps the knobs to the effect sends; a hold lays the master FX
@@ -1617,7 +1634,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
 }
 void groove_screen_init(void)
 {
-    drum = kit_ready = knob_bank = ble_was_linked = seeking = writing = armed = orbit_shown = 0;
+    drum = kit_ready = knob_bank = ble_was_linked = seeking = writing = armed = orbit_shown = rec_wanted = 0;
     kit_retry = scene_at = splash_at = synth_retry = fm1_millis();
     view_page = PAGE_SPLASH;
     glitch = smoke = smoke_shown = fx_applied = fx_held = fx_latched = fx_engine = fx_down = 0;
@@ -1688,8 +1705,9 @@ void groove_screen_mmc(unsigned command)
     unsigned transport = command == 1 || command == 9 ? 0xfc :
                          command == 2 || command == 3 || command == 6 ? 0xfb : 0;
     if (!transport && command != 7) return;
-    writing = command == 6;
+    writing = rec_wanted = command == 6;
     armed = 0;
+    playing_at = fm1_millis();
     groove_edit_record(writing, synth_mode ? SYNTH : KIT, 0);
     if (transport) (void)post((uint8_t)transport, 0, 0, 1);
 }
