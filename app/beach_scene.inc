@@ -2,10 +2,11 @@
 /* Beach 909 sunset: 120x56 logical pixels, painted at 2x on the LCD.
  * Integer only and stateless, so the same pixels come out on the device and
  * in the browser preview. `phase` advances the water; `pulse` swells the sun. */
+/* The Terms Of Service mark is the act's logo, redrawn here as the sun. */
 #include "beach_art.inc"
 
 #define BEACH_RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
-enum { BEACH_W = 120, BEACH_H = 56, BEACH_HORIZON = 34, BEACH_SUN_X = 76, BEACH_SUN_Y = 33 };
+enum { BEACH_W = 120, BEACH_H = 56, BEACH_HORIZON = 34, BEACH_SUN_X = 76, BEACH_SUN_Y = 20 };
 
 static unsigned beach_hash(unsigned x, unsigned y)
 {
@@ -19,7 +20,7 @@ static unsigned beach_sand_top(unsigned x)
     unsigned y = 47U + x * x / 300U;
     return y < BEACH_H ? y : BEACH_H;
 }
-static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse)
+static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse, uint16_t mark)
 {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     static const uint16_t sky[7] = {
@@ -39,14 +40,18 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
         return (beach_hash(x, y) & 7U) ? BEACH_RGB(70, 34, 70) : BEACH_RGB(104, 54, 84);
     }
     if (y < BEACH_HORIZON) {
-        int dx = (int)x - BEACH_SUN_X, dy = (int)y - BEACH_SUN_Y, r = pulse ? 16 : 15;
+        int dx = (int)x - BEACH_SUN_X, dy = (int)y - BEACH_SUN_Y, r = pulse ? 14 : 13;
         if (dx * dx + dy * dy <= r * r) {
-            /* Retro sun: slits widen toward the horizon. */
-            if (dy == -7 || dy == -4 || dy == -2 || dy == -1) return BEACH_RGB(214, 60, 110);
-            return dy < -9 ? BEACH_RGB(255, 244, 170) : dy < -5 ? BEACH_RGB(255, 208, 96)
-                 : dy < -2 ? BEACH_RGB(255, 150, 70) : BEACH_RGB(255, 100, 110);
+            /* The sun is the Terms Of Service mark: a disc with a square pulse.
+             * `mark` is the pulse colour, set by whichever drum is sounding. */
+            int ax = dx < 0 ? -dx : dx;
+            if ((dy >= -4 && dy <= -2 && ax <= 5) || (dy >= -4 && dy <= 4 && ax >= 3 && ax <= 5) ||
+                (dy >= 2 && dy <= 4 && ax >= 3 && ax <= 10))
+                return mark;
+            return dy < -6 ? BEACH_RGB(255, 244, 170) : dy < 0 ? BEACH_RGB(255, 208, 96)
+                 : dy < 6 ? BEACH_RGB(255, 150, 70) : BEACH_RGB(255, 100, 110);
         }
-        if (pulse && dx * dx + dy * dy <= 19 * 19 && ((x ^ y) & 1U)) return BEACH_RGB(255, 190, 110);
+        if (pulse && dx * dx + dy * dy <= 17 * 17 && ((x ^ y) & 1U)) return BEACH_RGB(255, 190, 110);
         for (unsigned i = 0; i < sizeof clouds / sizeof clouds[0]; ++i)
             if (y == clouds[i][0] && x >= clouds[i][1] && x < (unsigned)clouds[i][1] + clouds[i][2])
                 return y < 14 ? BEACH_RGB(150, 64, 140) : y < 21 ? BEACH_RGB(238, 110, 130) : BEACH_RGB(255, 176, 100);

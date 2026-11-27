@@ -139,7 +139,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(255, 100, 110), BEACH_RGB(255, 150, 70),  BEACH_RGB(255, 208, 96),  BEACH_RGB(255, 236, 170),
     BEACH_RGB(240, 110, 180), BEACH_RGB(180, 130, 250), BEACH_RGB(100, 150, 255), BEACH_RGB(70, 214, 200)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "EDIT:DELETE FX:KNOBS ENV:VAPE LFO:GAME";
+static const char help[] = "EDIT:DELETE FX:KNOBS ENV:SMOKE LFO:GAME";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
@@ -157,6 +157,7 @@ static struct { int x, y; unsigned kind, turn; } game_piece;
 static unsigned game_lines, game_over;
 static uint32_t game_random, game_fall_at;
 static unsigned scene_phase, scene_pulse;
+static uint16_t scene_mark; /* pulse colour of the Terms Of Service sun */
 static const char *notice;
 static uint32_t notice_until;
 static char master_notice[24];
@@ -267,25 +268,23 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
-    if (vape_age) {
-        /* The pen lies on the sand: light, battery, tank, mouthpiece. */
-        if (y >= 44 && y <= 46 && x >= 18 && x <= 37) {
-            if (x == 18) return vape_on ? BEACH_RGB(90, 255, 240) : BEACH_RGB(40, 90, 100);
-            if (x >= 35) return y == 45 ? BEACH_RGB(30, 26, 44) : BEACH_RGB(14, 8, 30);
-            if (x >= 29) return y == 45 ? BEACH_RGB(255, 190, 110) : BEACH_RGB(200, 210, 230);
-            return y == 44 ? BEACH_RGB(236, 240, 250) : y == 45 ? BEACH_RGB(170, 180, 205) : BEACH_RGB(104, 110, 140);
+    /* Smoke: thin wisps always drift across the horizon; ENV thickens them
+     * and blows a cloud. Every other pixel shows through. */
+    if ((x ^ y) & 1U)
+        for (unsigned k = 0; k < 3; ++k) {
+            int rx = 15 + (int)k * 5 + (int)vape_fade, ry = 2 + (int)(k & 1U) + (int)vape_fade / 5;
+            int dx = (int)((k * 53U + scene_phase * (k + 1U) / 2U) % 170U) - 25 - (int)x, dy = 27 + (int)k * 5 - (int)y;
+            if (dx * dx * ry * ry + dy * dy * rx * rx <= rx * rx * ry * ry) return BEACH_RGB(214, 196, 232);
         }
-        if (vape_on && x == 17 && y == 45) return BEACH_RGB(200, 255, 250);
-    }
     if (vape_age)
         for (int k = 0; k < 4; ++k) {
             int dx = (int)x - (42 + k * 10 + (int)vape_age * 2), dy = (int)y - (43 - k * 6 - (int)vape_age);
             int r = 5 + k * 2 + (int)vape_age / 3, d = dx * dx + dy * dy;
             unsigned grain = beach_hash(x + vape_age, y) & 7U;
-            if (d <= r * r && (unsigned)(d * 16 / (r * r)) + 15U - vape_fade < 11U + grain)
+            if (((x ^ y) & 1U) && d <= r * r && (unsigned)(d * 16 / (r * r)) + 15U - vape_fade < 11U + grain)
                 return d * 2 < r * r ? BEACH_RGB(246, 236, 250) : BEACH_RGB(206, 178, 226);
         }
-    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse);
+    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark);
     if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
     else if (torn == 2) color |= 0xf81fU;
     return color;
@@ -301,13 +300,13 @@ static void scene_draw(void)
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
         } else {
             if (cache->sea != scene_phase) {
-                paint_mark(0, SEA_ROW, FM1_SCREEN_WIDTH, SCENE_ROWS - SEA_ROW);
+                paint_mark(0, 44, FM1_SCREEN_WIDTH, SCENE_ROWS - 44); /* smoke and water */
                 if ((cache->sea ^ scene_phase) & ~3U) paint_mark(0, 0, FM1_SCREEN_WIDTH, 26); /* stars */
             }
-            if (cache->sun != scene_pulse) paint_mark(112, 26, 80, SEA_ROW - 26);
+            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(112, 0, 80, SEA_ROW);
         }
         cache->sea = scene_phase;
-        cache->sun = scene_pulse;
+        cache->sun = scene_pulse | ((uint32_t)scene_mark << 1);
         return;
     }
     if (paint_top >= SCENE_ROWS) return;
@@ -602,6 +601,13 @@ static void draw(void)
         ++scene_phase;
     }
     scene_pulse = frame_view.playing && !(frame_view.play_step & 3U);
+    /* Every drum lights the mark in its own colour, from the pattern or the keys. */
+    scene_mark = BEACH_RGB(14, 8, 30);
+    for (unsigned lane = 0; lane < 8; ++lane)
+        if (((frame_step_drums >> lane_pad[lane]) & 1U) || key_note[pad_keys[lane]] != 0xff) {
+            scene_mark = lane_color[lane];
+            break;
+        }
     /* Snare and clap tear the picture for a moment; the splash never settles. */
     unsigned step = frame_view.playing ? frame_view.play_step + 1U : 0;
     if (step != last_step) {
@@ -851,8 +857,7 @@ static void game_control(const struct fm1_controls *controls, uint32_t pressed, 
     if (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
     else game_land();
 }
-/* ENV is the vape: a pen appears on the beach and puffs a cloud while the
- * button is held. Animation only; the sound is untouched. */
+/* ENV thickens the smoke and blows a cloud while it is held. Animation only. */
 static void vape_control(const struct fm1_controls *controls, uint32_t pressed)
 {
     if ((pressed & BUTTON(ENV)) && !vape_on) {

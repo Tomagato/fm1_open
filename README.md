@@ -2,7 +2,7 @@
 
 A Terms Of Service release on Mizu Records.
 
-A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art sunset.
+A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art sunset. The sun is the Terms Of Service logo, and its pulse lights up in the colour of whichever drum is sounding.
 
 The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loaded with a 909-style drum kit. The kit is synthesized (oscillators and noise, `web/synth/demo_bank.h`); it contains no recordings. The stock firmware fills its Flash slot to within a few hundred bytes, so the multi-page FM1 Open panel (DX7/303/808 editors, mixer, Bluetooth and MIDI menus) is not in this build. The engines, MIDI input, USB audio and the workbench transfers are unchanged.
 
@@ -19,7 +19,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | EDIT + white key | Delete that step (every drum on it) |
 | EDIT + black key | Delete that drum from the whole pattern |
 | EDIT (hold 2 s) | Delete the whole pattern |
-| ENV (hold) | Vape: a pixel vape pen appears on the beach and puffs a cloud across the sunset (animation only) |
+| ENV (hold) | Smoke: the wisps drifting over the horizon thicken and a cloud rolls across the sunset (animation only) |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
 | ARP | Internal tempo or external MIDI clock |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
