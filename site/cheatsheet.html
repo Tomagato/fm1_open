@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beach 909 cheat sheet · Terms Of Service × Mizu Records</title>
+<style>
+  :root { --ink:#0b0718; --panel:#17102e; --line:#3a2a66; --red:#e82430; --blue:#2882f0; --text:#f4ecf8; --dim:#b9a9cc; --sun:#ffce6e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ink); color:var(--text); font:15px/1.45 ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  main { max-width:1180px; margin:0 auto; padding:32px 20px 60px; }
+  header { display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; }
+  header img { width:132px; height:132px; image-rendering:pixelated; border:2px solid var(--red); border-radius:10px; }
+  .eyebrow { margin:0; letter-spacing:.3em; font-size:12px; color:var(--dim); }
+  h1 { margin:6px 0 8px; font-size:clamp(30px,6vw,56px); letter-spacing:.06em; line-height:1; }
+  h1 span { color:var(--red); }
+  .lead { margin:0; max-width:60ch; font-size:17px; }
+  .meta { margin:8px 0 0; color:var(--dim); font-size:13px; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+  .actions a,.actions button { font:inherit; font-weight:700; text-decoration:none; cursor:pointer; padding:9px 14px; border:2px solid var(--line); background:none; color:var(--text); }
+  .actions a.primary { background:var(--red); border-color:var(--red); color:var(--ink); }
+  .actions a:hover,.actions button:hover,.actions a:focus-visible,.actions button:focus-visible { border-color:var(--text); outline:none; }
+  .keys { position:relative; display:flex; max-width:660px; height:150px; margin:30px 0 8px; }
+  .white { flex:1; position:relative; background:#f2ecf6; border:1px solid var(--ink); border-radius:0 0 5px 5px; }
+  .black { position:absolute; top:0; width:3.8%; height:60%; background:#0d0a16; border:1px solid #000; border-radius:0 0 4px 4px; }
+  .keys i { position:absolute; left:50%; transform:translateX(-50%); display:block; }
+  .white .pad { bottom:8px; width:70%; height:12px; background:var(--blue); border-radius:3px; }
+  .black .pad { bottom:6px; width:12px; height:12px; border-radius:50%; background:var(--blue); }
+  .black .op { bottom:24px; width:12px; height:12px; border-radius:50%; background:var(--sun); }
+  .legend { display:flex; gap:20px; flex-wrap:wrap; color:var(--dim); font-size:13px; margin:0 0 26px; }
+  .legend b { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:7px; vertical-align:-1px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-top:3px solid var(--red); padding:14px 14px 6px; break-inside:avoid; }
+  .card:nth-child(even) { border-top-color:var(--blue); }
+  h2 { margin:0 0 10px; font-size:13px; letter-spacing:.24em; color:var(--sun); }
+  .row { display:grid; grid-template-columns:minmax(96px,42%) 1fr; gap:10px; padding:7px 0; border-top:1px solid #ffffff12; }
+  .row:first-of-type { border-top:0; }
+  .verb { color:var(--dim); font-size:12px; }
+  .plus { color:var(--dim); }
+  kbd { display:inline-block; font:inherit; font-size:12px; font-weight:700; padding:1px 6px; margin:1px 0; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; background:#0b0718; white-space:nowrap; }
+  .what { font-size:14px; }
+  .notes { margin-top:22px; background:var(--panel); border:1px solid var(--line); padding:14px 18px; }
+  .notes ul { margin:6px 0 0; padding-left:20px; } .notes li { margin:6px 0; }
+  a { color:var(--sun); }
+  footer { margin-top:22px; color:var(--dim); font-size:13px; }
+  @media print {
+    body { background:#fff; color:#000; font-size:10px; } main { padding:0; max-width:none; }
+    .actions { display:none; } .card,.notes { background:#fff; border-color:#999; } h2,a { color:#000; } kbd { background:#fff; border-color:#666; }
+    .verb,.plus,.meta,.eyebrow,.legend,footer { color:#444; } .grid { grid-template-columns:repeat(4,1fr); gap:8px; } .what { font-size:10px; }
+    .keys { height:90px; margin:12px 0 6px; } .white { border-color:#000; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="screen.png" alt="The Beach 909 screen: a red star with the Terms Of Service logo, an e-cigarette, the preset list, the radar and four bars">
+    <div>
+      <p class="eyebrow">TERMS OF SERVICE × MIZU RECORDS · CHEAT SHEET</p>
+      <h1>BEACH 909 <span>AT A GLANCE</span></h1>
+      <p class="lead">A synth and a drum kit to play live, a loop recorder with no grid, effects turned all the way up, a vape and a coin pusher. Press a key: it already makes sound.</p>
+      <p class="meta">For the build published with this page · written from its source · not yet checked on hardware by its author</p>
+      <div class="actions">
+        <a class="primary" href="FM1-Official-Open-Source.html">Install Beach 909</a>
+        <a href="background.html">Background picture</a>
+        <a href="./">Home</a>
+        <button type="button" onclick="print()">Print</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="keys" role="img" aria-label="The FM-1 keyboard: sixteen white keys and eleven black keys. The first eight black keys and the first eight white keys are the drum pads; the first three black keys are OP1, OP2 and OP3."><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"><i class='pad'></i></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="white"></div><div class="black" style="left:calc(1 * 100% / 16 - 1.9%)"><i class='op'></i><i class='pad'></i></div><div class="black" style="left:calc(2 * 100% / 16 - 1.9%)"><i class='op'></i><i class='pad'></i></div><div class="black" style="left:calc(3 * 100% / 16 - 1.9%)"><i class='op'></i><i class='pad'></i></div><div class="black" style="left:calc(5 * 100% / 16 - 1.9%)"><i class='pad'></i></div><div class="black" style="left:calc(6 * 100% / 16 - 1.9%)"><i class='pad'></i></div><div class="black" style="left:calc(8 * 100% / 16 - 1.9%)"><i class='pad'></i></div><div class="black" style="left:calc(9 * 100% / 16 - 1.9%)"><i class='pad'></i></div><div class="black" style="left:calc(10 * 100% / 16 - 1.9%)"><i class='pad'></i></div><div class="black" style="left:calc(12 * 100% / 16 - 1.9%)"></div><div class="black" style="left:calc(13 * 100% / 16 - 1.9%)"></div><div class="black" style="left:calc(15 * 100% / 16 - 1.9%)"></div></div>
+  <p class="legend"><span><b style="background:var(--blue)"></b>Drum pads in drum mode (black 1-8 or white 1-8). In synth mode every key plays.</span><span><b style="background:var(--sun)"></b>OP1 OP2 OP3: together, the coin pusher</span></p>
+
+  <div class="grid">
+<section class="card"><h2>GETTING AROUND</h2><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>HOME</kbd></div><div class="what">Swap the keys between the synth and the drum kit.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>SEQ</kbd></div><div class="what">Next synth preset. SCL is the previous one.</div></div><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>SELECT</kbd></div><div class="what">Scroll the preset list. ALGORITHM and PRESETS do the same.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>FX</kbd></div><div class="what">Put the four knobs on the effects. Tap again to go back.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>ENV</kbd></div><div class="what">Put the four knobs on the vape. Tap again to go back.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>LFO</kbd></div><div class="what">Tide Blocks, a falling-block game. Tap again to leave.</div></div><div class="row"><div class="gesture"><span class="verb">press</span> <kbd>OP1</kbd> <span class="plus">+</span> <kbd>OP2</kbd> <span class="plus">+</span> <kbd>OP3</kbd></div><div class="what">The coin pusher. The same three keys, or HOME, leave.</div></div></section>
+<section class="card"><h2>PLAYING</h2><div class="row"><div class="gesture"><kbd>any key</kbd></div><div class="what">Synth: all 27 keys play, F3 to G5.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>OCT</kbd> <span class="plus">+</span> <kbd></kbd></div><div class="what">Synth: up an octave. OCT- goes down. Five dots show where you are.</div></div><div class="row"><div class="gesture"><kbd>black key 1-8</kbd></div><div class="what">Drums: BD SD CH OH CP RS TM CR. White keys 1-8 are the same pads.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>ARP</kbd></div><div class="what">Drums: repeat. A held pad retriggers in time. Four rates, then off.</div></div><div class="row"><div class="gesture"><span class="verb">hold</span> <kbd>ARP</kbd></div><div class="what">One second: swap between the FM-1's own tempo and MIDI clock.</div></div><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>MASTER</kbd></div><div class="what">Output volume.</div></div></section>
+<section class="card"><h2>LOOP</h2><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>REC</kbd></div><div class="what">Start recording what you play into a four-bar loop. Starts the loop if it was stopped.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>REC again</kbd></div><div class="what">Keep the loop and carry on playing over it.</div></div><div class="row"><div class="gesture"><span class="verb">hold</span> <kbd>REC</kbd></div><div class="what">Three seconds: delete everything, synth and drums.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>PLAY</kbd></div><div class="what">Start or stop the loop.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>HOME</kbd> <span class="plus">+</span> <span class="verb">tap</span> <kbd>REC</kbd></div><div class="what">Record the other one on top: the loop takes whichever of synth or drums the keys are on.</div></div></section>
+<section class="card"><h2>SOUND</h2><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>KNOB 1-4</kbd></div><div class="what">Synth: volume, reverb, delay, tempo. Drums: level, tune, decay of the last pad you hit, tempo.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>FX</kbd> <span class="plus">+</span> <span class="verb">turn</span> <kbd>KNOB 1-4</kbd></div><div class="what">Reverb send, delay send, delay feedback, effects level.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>SAVE</kbd></div><div class="what">Store the sound settings and the loop.</div></div></section>
+<section class="card"><h2>VAPE</h2><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>ENV</kbd> <span class="plus">+</span> <span class="verb">turn</span> <kbd>KNOB 1</kbd></div><div class="what">Smoke, from a thin plume to a cloud over the whole screen.</div></div><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>KNOB 2</kbd></div><div class="what">How fast the cloud rolls.</div></div><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>KNOB 3</kbd></div><div class="what">Max: the screen fills with smoke.</div></div><div class="row"><div class="gesture"><span class="verb">turn</span> <kbd>KNOB 4</kbd></div><div class="what">Clear: the smoke is gone at once.</div></div></section>
+<section class="card"><h2>COIN PUSHER</h2><div class="row"><div class="gesture"><span class="verb">press</span> <kbd>OP1</kbd> <span class="plus">+</span> <kbd>OP2</kbd> <span class="plus">+</span> <kbd>OP3</kbd></div><div class="what">Open it. Coins pile up, the plate shoves them, and they spill over the front.</div></div><div class="row"><div class="gesture"><kbd>any key</kbd></div><div class="what">Drop a coin above that key.</div></div><div class="row"><div class="gesture"><kbd>coin falls</kbd></div><div class="what">Plays a synth note chosen by the slot it lands in: low on the left, high on the right.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>SEQ</kbd></div><div class="what">Change the preset the coins play. SCL goes back.</div></div><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>HOME</kbd></div><div class="what">Leave.</div></div></section>
+<section class="card"><h2>CONNECTING</h2><div class="row"><div class="gesture"><span class="verb">tap</span> <kbd>GLO</kbd></div><div class="what">Show the Bluetooth MIDI link.</div></div><div class="row"><div class="gesture"><span class="verb">hold</span> <kbd>GLO</kbd></div><div class="what">One second: close the link, or swap between waiting for a phone or computer and searching for a controller.</div></div><div class="row"><div class="gesture"><kbd>MIDI in</kbd></div><div class="what">Channel 1 plays the synth, channel 10 the drums.</div></div></section>
+<section class="card"><h2>READING THE SCREEN</h2><div class="row"><div class="gesture"><kbd>orbits</kbd></div><div class="what">The loop. Drums on the inner orbit, synth on the outer. A moon is a recorded step; the comet is where the loop is.</div></div><div class="row"><div class="gesture"><kbd>radar</kbd></div><div class="what">Ten controls as one shape. The four coloured spokes are the knobs in your hands.</div></div><div class="row"><div class="gesture"><kbd>bars</kbd></div><div class="what">KNOB 1-4: what each one is and how far it is turned.</div></div><div class="row"><div class="gesture"><kbd>top right</kbd></div><div class="what">Tempo as a bar: longer is faster.</div></div></section>
+  </div>
+
+  <section class="notes">
+    <h2>GOOD TO KNOW</h2>
+    <ul><li>There are no numbers on the screen. Turn a knob and watch its bar and the radar move.</li><li>Reverb and delay start turned all the way up, every time the FM-1 boots. Pull them back with FX and the knobs.</li><li>With the effects already full, smoke changes the picture more than the sound. Turn the effects down first to hear it work as a macro.</li><li>The first three black keys are OP1, OP2 and OP3. Press them together, not one after another.</li><li>The drums play the sample bank on the device. Write the built-in samples from the install page to get the 909 kit.</li><li>Your own picture behind the screen: use the background picture page.</li></ul>
+  </section>
+  <footer>Beach 909 is an unofficial firmware for the M-VAVE FM-1, a fork of FM1 Open, under the GPLv3 with the FM1 SDK linking exception. Not made or endorsed by M-VAVE or Roland.</footer>
+</main>
+</body>
+</html>

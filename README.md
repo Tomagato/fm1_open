@@ -27,6 +27,8 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 
 The synth answers MIDI notes on channel 1 and the kit on channel 10.
 
+A one-page cheat sheet of every control: <https://tomagato.github.io/fm1_open/cheatsheet.html>.
+
 ## Reading the screen
 
 There are no numbers and no step grid on the main page. The loop is drawn as two orbits around the red star: drums on the inner one, the synth on the outer, one moon for every step that has something recorded, and a comet that runs round as the loop plays and flares when it hits a moon. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, effects level, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
