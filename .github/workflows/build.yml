@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
+name: build
+
+on:
+  push:
+    branches: [beach-909]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JL_URL: https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe
+  JL_SHA256: 399bd518a28e47a7a0394506cebd5bf658748a58cd6b7c02512e24b4b88c5a5e
+
+jobs:
+  firmware:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JieLi toolchain
+        id: jl
+        uses: actions/cache@v4
+        with:
+          path: C:\JL
+          key: jieli-2.5.3-${{ env.JL_SHA256 }}
+
+      - name: Install JieLi toolchain 2.5.3
+        if: steps.jl.outputs.cache-hit != 'true'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:RUNNER_TEMP 'jl-2.5.3.exe'
+          curl.exe --fail --location --retry 3 --output $exe $env:JL_URL
+          if ($LASTEXITCODE -ne 0) { throw 'Toolchain download failed.' }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne $env:JL_SHA256) { throw "Toolchain installer SHA-256 mismatch: $hash" }
+          function Find-Clang { Get-ChildItem -LiteralPath 'C:\JL' -Recurse -Filter clang.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1 }
+          # Inno Setup 5.5.7 installer: unattended install, bounded in case a post-install step waits for input.
+          $log = Join-Path $env:RUNNER_TEMP 'jl-install.log'
+          $p = Start-Process -FilePath $exe -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/DIR=C:\JL',"/LOG=$log")
+          if (!$p.WaitForExit(480000)) {
+              Write-Host 'Installer did not exit in 8 minutes; stopping it.'
+              & taskkill.exe /F /T /PID $p.Id | Out-Host
+          } else { Write-Host "Installer exit code $($p.ExitCode)" }
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 40 }
+          if (!(Find-Clang)) {
+              Write-Host 'Silent install left no pi32 compiler; extracting the installer instead.'
+              choco install innoextract -y --no-progress | Out-Host
+              $raw = Join-Path $env:RUNNER_TEMP 'jl-raw'
+              & innoextract.exe --silent --output-dir $raw $exe
+              if ($LASTEXITCODE -ne 0) { throw 'innoextract failed.' }
+              $clang = Get-ChildItem -LiteralPath $raw -Recurse -Filter clang.exe |
+                  Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1
+              if (!$clang) { throw 'pi32 compiler not found in the installer.' }
+              New-Item -ItemType Directory -Force -Path 'C:\JL' | Out-Null
+              Copy-Item -LiteralPath (Split-Path -Parent $clang.DirectoryName) -Destination 'C:\JL\pi32' -Recurse -Force
+          }
+          if (!(Find-Clang)) { throw 'JieLi toolchain install failed.' }
+
+      - name: Locate toolchain
+        run: |
+          $clang = Get-ChildItem -LiteralPath 'C:\JL' -Recurse -Filter clang.exe |
+              Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1
+          if (!$clang) { throw 'pi32 compiler not found.' }
+          $pi32 = Split-Path -Parent $clang.DirectoryName
+          Write-Host "pi32: $pi32  clang sha256: $((Get-FileHash -LiteralPath $clang.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+          "FM1_PI32_TOOLCHAIN=$pi32" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Web preview
+        run: .\tools\Build-Web.ps1 -LocalPreview
+
+      - name: Firmware
+        run: ./sdk/Build.ps1 -FirmwareOnly
+
+      - name: Keep firmware-only package
+        run: Copy-Item build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc (Join-Path $env:RUNNER_TEMP 'firmware-only.fwsc')
+
+      - name: Workbench package
+        env:
+          FM1_SOURCE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.zip
+        run: |
+          cmd.exe /c build.bat --package
+          if ($LASTEXITCODE -ne 0) { throw "build.bat failed ($LASTEXITCODE)" }
+          Get-FileHash build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc, (Join-Path $env:RUNNER_TEMP 'firmware-only.fwsc'), build/official-web/FM1-Official-Open-Source.html | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm1-firmware
+          if-no-files-found: error
+          path: |
+            build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc
+            build/dx7/*.json
+            build/dx7/sdk.map
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm1-workbench
+          if-no-files-found: error
+          path: build/official-web/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm1-preview
+          if-no-files-found: error
+          path: build/preview/index.html
