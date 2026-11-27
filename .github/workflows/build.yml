@@ -34,7 +34,7 @@ jobs:
           path: C:\JL
           key: jieli-2.5.3-${{ env.JL_SHA256 }}
 
-      - name: Install JieLi toolchain 2.5.3
+      - name: Unpack JieLi toolchain 2.5.3
         if: steps.jl.outputs.cache-hit != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
@@ -43,29 +43,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Toolchain download failed.' }
           $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -cne $env:JL_SHA256) { throw "Toolchain installer SHA-256 mismatch: $hash" }
-          function Find-Clang { Get-ChildItem -LiteralPath 'C:\JL' -Recurse -Filter clang.exe -ErrorAction SilentlyContinue |
-              Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1 }
-          # Inno Setup 5.5.7 installer: unattended install, bounded in case a post-install step waits for input.
-          $log = Join-Path $env:RUNNER_TEMP 'jl-install.log'
-          $p = Start-Process -FilePath $exe -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/DIR=C:\JL',"/LOG=$log")
-          if (!$p.WaitForExit(480000)) {
-              Write-Host 'Installer did not exit in 8 minutes; stopping it.'
-              & taskkill.exe /F /T /PID $p.Id | Out-Host
-          } else { Write-Host "Installer exit code $($p.ExitCode)" }
-          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 40 }
-          if (!(Find-Clang)) {
-              Write-Host 'Silent install left no pi32 compiler; extracting the installer instead.'
-              choco install innoextract -y --no-progress | Out-Host
-              $raw = Join-Path $env:RUNNER_TEMP 'jl-raw'
-              & innoextract.exe --silent --output-dir $raw $exe
-              if ($LASTEXITCODE -ne 0) { throw 'innoextract failed.' }
-              $clang = Get-ChildItem -LiteralPath $raw -Recurse -Filter clang.exe |
-                  Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1
-              if (!$clang) { throw 'pi32 compiler not found in the installer.' }
-              New-Item -ItemType Directory -Force -Path 'C:\JL' | Out-Null
-              Copy-Item -LiteralPath (Split-Path -Parent $clang.DirectoryName) -Destination 'C:\JL\pi32' -Recurse -Force
-          }
-          if (!(Find-Clang)) { throw 'JieLi toolchain install failed.' }
+          # The Inno Setup 5.5.7 installer stops on a scripted message box even with
+          # /VERYSILENT /SUPPRESSMSGBOXES, so unpack it instead. sdk/Build.ps1 then
+          # verifies all 22 toolchain files against sdk/manifest.json.
+          choco install innoextract -y --no-progress | Out-Host
+          $raw = Join-Path $env:RUNNER_TEMP 'jl-raw'
+          & innoextract.exe --silent --output-dir $raw $exe
+          if ($LASTEXITCODE -ne 0) { throw 'innoextract failed.' }
+          $clang = Get-ChildItem -LiteralPath $raw -Recurse -Filter clang.exe |
+              Where-Object { $_.DirectoryName -match '\\pi32\\bin$' } | Select-Object -First 1
+          if (!$clang) { throw 'pi32 compiler not found in the installer.' }
+          New-Item -ItemType Directory -Force -Path 'C:\JL' | Out-Null
+          Copy-Item -LiteralPath (Split-Path -Parent $clang.DirectoryName) -Destination 'C:\JL\pi32' -Recurse -Force
 
       - name: Locate toolchain
         run: |

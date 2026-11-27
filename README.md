@@ -1,3 +1,42 @@
+# Beach 909 for M-VAVE FM-1
+
+A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a very simple 909-style drum machine: one page, eight drums, sixteen steps per bar, reverb and delay, under a pixel-art sunset.
+
+The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loaded with a 909-style drum kit. The kit is synthesized (oscillators and noise, `web/synth/demo_bank.h`); it contains no recordings. The stock firmware fills its Flash slot to within a few hundred bytes, so the multi-page FM1 Open panel (DX7/303/808 editors, mixer, Bluetooth and MIDI menus) is not in this build. The engines, MIDI input, USB audio and the workbench transfers are unchanged.
+
+| Control | Beach 909 |
+| --- | --- |
+| Black keys F#3 to A#4 (first eight) | Play and select a drum: BD, SD, CH, OH, CP, RS, TM, CR |
+| White keys (sixteen) | Toggle the selected drum's steps in the bar on screen |
+| PLAY / REC | Start or stop / record the black keys into the running pattern |
+| K1 to K4 | LEVEL, TUNE, DECAY of the selected drum, TEMPO |
+| FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, SWING |
+| Other three encoders | Two select the drum, one sets the tempo |
+| SCL | Pattern length, 1 to 4 bars |
+| OCT - / OCT + / SEQ | Previous bar / next bar / follow the playing bar |
+| EDIT (hold) | Clear the selected drum |
+| ARP | Internal tempo or external MIDI clock |
+| SAVE | Store the pattern (project slot 16; other slots are never written) |
+| MASTER | Output volume |
+
+The kit also answers MIDI notes on channel 10.
+
+## Install
+
+1. Back up projects and samples with the workbench you already use.
+2. Open the Beach 909 workbench page (`FM1-Official-Open-Source.html` from the `fm1-workbench` build artifact) from HTTPS or `localhost` in Chrome or Edge, connect the FM-1 over USB and update.
+3. On the page's sample tab, load the built-in samples and write them to the device. This replaces the sample bank on the device with the 909 kit; until then the screen shows `NO SAMPLES` or plays the samples that are already there.
+
+The same page restores the original M-VAVE V15 firmware (`sdk/firmware/FM-1_015.fwsc`). This build has not been validated on hardware by its author; use it at your own risk.
+
+## Build
+
+`.github/workflows/build.yml` builds everything on a `windows-latest` runner: it unpacks JieLi toolchain 2.5.3 with innoextract, then runs the preview, firmware and workbench builds and uploads `FM1_OFFICIAL_OPEN.fwsc`, the workbench page and the preview as artifacts. `FM1_SOURCE_URL` is the GitHub archive of the commit being built.
+
+The rest of this file is the FM1 Open V14 README.
+
+---
+
 # FM1 Open V14
 
 English · [简体中文](README.zh-CN.md)

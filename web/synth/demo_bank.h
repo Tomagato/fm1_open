@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
- * Synthesized vocal samples for browser initialization. */
+ * Synthesized 909-style drum kit for browser initialization (Beach 909). */
 #ifndef FM1_DEMO_BANK_H
 #define FM1_DEMO_BANK_H
 #include <math.h>
@@ -8,92 +8,97 @@ static void demo_put32(uint8_t *p, uint32_t value)
 {
     for (unsigned i = 0; i < 4; ++i) p[i] = (uint8_t)(value >> (8*i));
 }
-struct demo_formant { double a, r2, gain, y1, y2; };
+/* One-pole/biquad helpers for the drum voices below. */
+struct demo_biquad { double b0, b1, b2, a1, a2, x1, x2, y1, y2; };
+static void demo_filter(struct demo_biquad *f, int high, double hz, double q)
+{
+    double w = 6.283185307179586*hz/32000, c = cos(w), alpha = sin(w)/(2*q), a0 = 1+alpha;
+    f->b1 = (high ? -(1+c) : 1-c)/a0; f->b0 = f->b2 = (high ? 1+c : 1-c)/(2*a0);
+    f->a1 = -2*c/a0; f->a2 = (1-alpha)/a0;
+    f->x1 = f->x2 = f->y1 = f->y2 = 0;
+}
+static double demo_run(struct demo_biquad *f, double x)
+{
+    double y = f->b0*x + f->b1*f->x1 + f->b2*f->x2 - f->a1*f->y1 - f->a2*f->y2;
+    f->x2 = f->x1; f->x1 = x; f->y2 = f->y1; f->y1 = y;
+    return y;
+}
+/* 909-style kit synthesized from oscillators and noise: no recordings.
+ * Pads follow the factory layout: kick, snare, rim, clap, tom, crash,
+ * closed hat, open hat (the last two share a choke group). */
+enum { DEMO_BD, DEMO_SD, DEMO_RS, DEMO_CP, DEMO_TM, DEMO_CR, DEMO_CH, DEMO_OH };
 static const uint8_t *demo_bank(unsigned *bytes)
 {
     static uint8_t *bank;
     static unsigned total;
     static const char *const names[SAMPLE_DRUM_PADS] = {
-        "BWOOM", "PAH", "HEY", "WAH", "HAHA", "YOI", "TSI", "SHAA"
+        "BD KICK", "SD SNARE", "RS RIM", "CP CLAP", "TM TOM", "CR CRASH", "CH HAT", "OH HAT"
     };
-    /* Bass/backbeat/response, three character sounds, closed/open mouth hats.
-     * Five-character names also remain distinct on the hardware LCD. */
-    static const unsigned duration[SAMPLE_DRUM_PADS] = {14080,8960,10240,15360,30080,14720,2880,10240};
-    static const double vowels[5][3] = {
-        {330,850,2400}, {760,1250,2700}, {500,1900,2650},
-        {310,2300,3000}, {460,900,2500}
-    }; /* oo, ah, eh, ee, oh */
-    static const uint8_t from[SAMPLE_DRUM_PADS] = {0,1,2,0,1,4,3,1};
-    static const uint8_t to[SAMPLE_DRUM_PADS] = {4,1,3,1,1,3,3,1};
-    static const double pitch[SAMPLE_DRUM_PADS][2] = {
-        {135,64},{185,135},{245,175},{140,95},{260,170},{170,340},{250,250},{190,130}
-    };
+    static const unsigned duration[SAMPLE_DRUM_PADS] = {14400,8960,2240,9600,11520,40000,2560,14080};
+    static const unsigned level[SAMPLE_DRUM_PADS] = {26000,23000,20000,21000,23000,15000,15000,15000};
+    /* Six detuned squares give the cymbals their metallic core. */
+    static const double metal[6] = {540.0, 800.5, 1047.2, 1371.9, 1685.3, 2202.6};
     if (!bank) {
         uint8_t *candidate = calloc(SAMPLE_DRUM_BANK_BYTES, 1);
-        float *work = malloc(32000 * sizeof *work);
-        int16_t *pcm = malloc(32000 * sizeof *pcm);
+        float *work = malloc(40000 * sizeof *work);
+        int16_t *pcm = malloc(40000 * sizeof *pcm);
         unsigned offset = SAMPLE_DRUM_BANK_HEADER;
-        uint32_t random = 1;
+        uint32_t random = 909;
         if (!candidate || !work || !pcm) goto failed;
         for (unsigned pad = 0; pad < SAMPLE_DRUM_PADS; ++pad) {
-            struct demo_formant filter[3] = {{0}};
             const unsigned frames = duration[pad];
-            double phase = 0, previous = 0, x1 = 0, x2 = 0, low_noise = 0;
-            double peak = 0, mean = 0;
+            struct demo_biquad high, low;
+            double phase = 0, second = 0, square[6] = {0}, peak = 0;
+            unsigned cymbal = pad == DEMO_CH || pad == DEMO_OH || pad == DEMO_CR;
+            demo_filter(&high, 1, pad == DEMO_SD ? 1400 : pad == DEMO_CP ? 700 : pad == DEMO_CR ? 3600 : 6800, 0.8);
+            demo_filter(&low, 0, pad == DEMO_SD ? 8500 : pad == DEMO_CP ? 1500 : 13000, pad == DEMO_CP ? 1.8 : 0.7);
             for (unsigned i = 0; i < frames; ++i) {
-                const double t = i / 32000.0, u = (double)i / (frames - 1);
-                double slide = 1-exp(-u*4), envelope = exp(-u*(pad == 0 ? 5 : 2.2));
-                double hz = pitch[pad][0] + (pitch[pad][1]-pitch[pad][0])*slide;
-                if (pad == 4) {
-                    /* Four separated, descending "ha" pulses. */
-                    double syllable = t*4.7, pulse = syllable-floor(syllable);
-                    envelope *= sin(3.141592653589793*fmin(1,pulse/0.72));
-                    hz += 45*sin(6.283185307179586*pulse);
-                }
-                if (pad == 5) hz += 35*sin(u*3.141592653589793);
-                hz *= 1 + 0.012*sin(t*33);
-                phase += hz/32000; phase -= floor(phase);
-                double glottal = phase < 0.40 ? 0.5-0.5*cos(3.141592653589793*phase/0.40)
-                                 : phase < 0.58 ? cos(3.141592653589793*(phase-0.40)/0.36) : 0;
+                const double t = i / 32000.0;
                 random = random*1664525u + 1013904223u;
-                double noise = (double)(random >> 8)/8388608.0-1;
-                low_noise += (noise-low_noise)*0.18;
-                double breath = noise-low_noise;
-                double source = (glottal-previous)*140/hz + noise*0.004;
-                previous = glottal;
-                if (pad == 6) source = noise*0.20;
-                if (pad == 7) source = source*0.6 + noise*0.12;
-                double voice = 0;
-                for (unsigned j = 0; j < 3; ++j) {
-                    struct demo_formant *f = &filter[j];
-                    if (!(i & 31U)) {
-                        double frequency = vowels[from[pad]][j] + (vowels[to[pad]][j]-vowels[from[pad]][j])*slide;
-                        double r = exp(-3.141592653589793*(90+60*j)/32000);
-                        f->a = 2*r*cos(6.283185307179586*frequency/32000);
-                        f->r2 = r*r; f->gain = (1-r)*0.5;
+                double noise = (double)(random >> 8) / 8388608.0 - 1.0, value = 0;
+                if (pad == DEMO_BD) {
+                    double hz = 47 + 190*exp(-t*42) + 46*exp(-t*9);
+                    phase += hz/32000;
+                    value = tanh(1.9*sin(6.283185307179586*phase)*exp(-t*7.2));
+                    value += 0.38*noise*exp(-t*600) + (i < 24 ? 0.5*(1 - i/24.0) : 0);
+                } else if (pad == DEMO_SD) {
+                    phase += (186 + 150*exp(-t*70))/32000; second += (332 + 190*exp(-t*70))/32000;
+                    double body = 0.62*sin(6.283185307179586*phase) + 0.38*sin(6.283185307179586*second);
+                    value = body*exp(-t*24) + 0.82*demo_run(&low, demo_run(&high, noise))*exp(-t*16);
+                    value = tanh(1.4*value);
+                } else if (pad == DEMO_RS) {
+                    phase += 494.0/32000; second += 1738.0/32000;
+                    value = sin(6.283185307179586*phase) + 0.7*sin(6.283185307179586*second) + 0.5*noise*exp(-t*900);
+                    value = tanh(2.2*value*exp(-t*95));
+                } else if (pad == DEMO_CP) {
+                    /* Three quick slaps, then the room tail. */
+                    double gate = t < 0.011 ? exp(-t*210) : t < 0.022 ? exp(-(t-0.011)*210)
+                                : t < 0.033 ? exp(-(t-0.022)*210) : 0.8*exp(-(t-0.033)*21);
+                    value = demo_run(&low, demo_run(&high, noise))*gate;
+                } else if (pad == DEMO_TM) {
+                    phase += (104 + 96*exp(-t*28))/32000;
+                    value = tanh(1.5*sin(6.283185307179586*phase)*exp(-t*8.5)) + 0.16*noise*exp(-t*260);
+                } else {
+                    double ring = 0;
+                    for (unsigned j = 0; j < 6; ++j) {
+                        square[j] += metal[j]*(pad == DEMO_CR ? 1.31 : 1.9)/32000;
+                        square[j] -= floor(square[j]);
+                        ring += square[j] < 0.5 ? 1.0 : -1.0;
                     }
-                    double y = f->gain*(source-x2) + f->a*f->y1-f->r2*f->y2;
-                    f->y2 = f->y1; f->y1 = y;
-                    voice += y*(j == 0 ? 1 : j == 1 ? 0.75 : 0.35);
+                    value = demo_run(&high, ring/6 + (pad == DEMO_CR ? 0.9 : 0.45)*noise);
+                    value *= pad == DEMO_CH ? exp(-t*75)
+                           : pad == DEMO_OH ? 0.75*exp(-t*7.5) + 0.25*exp(-t*60)
+                                            : 0.7*exp(-t*3.4) + 0.3*exp(-t*26);
                 }
-                x2 = x1; x1 = source;
-                double value = voice*14;
-                if (pad == 0) value += 0.22*sin(6.283185307179586*phase)*exp(-t*9);
-                if (pad == 1 || pad == 2) value += breath*0.18*exp(-t*100);
-                if (pad == 6) value += breath*0.28*exp(-t*48);
-                if (pad == 7) value += breath*0.12*exp(-t*10);
-                value *= envelope;
-                work[i] = (float)value; mean += value;
+                work[i] = (float)value;
             }
-            mean /= frames;
             for (unsigned i = 0; i < frames; ++i) {
-                double fade = fmin(1, fmin(i/48.0, (frames-1-i)/512.0));
-                work[i] = (float)((work[i]-mean)*fade);
+                double fade = fmin(1, (frames-1-i)/(cymbal ? 1600.0 : 400.0));
+                work[i] = (float)(work[i]*fade);
                 if (fabs(work[i]) > peak) peak = fabs(work[i]);
             }
             if (!(peak > 0)) goto failed;
-            double level = pad == 0 ? 23500 : pad == 6 || pad == 7 ? 16500 : 21000;
-            for (unsigned i = 0; i < frames; ++i) pcm[i] = (int16_t)(work[i]*level/peak);
+            for (unsigned i = 0; i < frames; ++i) pcm[i] = (int16_t)(work[i]*level[pad]/peak);
             unsigned size = ((frames+SAMPLE_DRUM_CHUNK_FRAMES-1)/SAMPLE_DRUM_CHUNK_FRAMES)*SAMPLE_DRUM_CHUNK_BYTES;
             if (size > SAMPLE_DRUM_BANK_BYTES-offset) goto failed;
             uint8_t *encoded = fm1_sea_encode(pcm, frames, sample_dqt);
