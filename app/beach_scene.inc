@@ -68,9 +68,9 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
         if (tail >= 0 && tail < 8 && (int)y == 5 + (int)flight * 2 - tail / 3)
             return tail < 2 ? BEACH_RGB(255, 255, 255) : BEACH_RGB(150, 190, 255);
     }
-    /* Three star layers drift at different speeds. */
+    /* Three layers of stars. They twinkle where the picture is being redrawn anyway. */
     for (unsigned layer = picture ? 1 : 0; layer < 3; ++layer) {
-        unsigned h = beach_hash((x + phase * (layer + 1U) / 4U) % 240U + layer * 977U, y);
+        unsigned h = beach_hash(x + layer * 977U, y); /* fixed: a drifting sky repaints the whole scene */
         if (h % (layer ? 113U : 71U) == 0 && ((h >> 9) + phase / 3U) % 6U)
             return layer == 2 ? BEACH_RGB(255, 255, 255) : layer ? BEACH_RGB(170, 200, 255) : BEACH_RGB(110, 100, 170);
     }

@@ -148,6 +148,7 @@ static unsigned drum;
 /* The loop: REC records what is played into a four-bar loop on the track the
  * keys are on. There is no grid; the loop is drawn as orbits around the star. */
 static unsigned writing, armed, rec_fired, orbit_shown;
+static uint8_t orbit_head[2] = {255, 255};
 static uint32_t rec_since;
 static struct groove_view frame_loop[2]; /* kit, synth */
 static const int8_t orbit_sine[64] = {0,12,25,37,49,60,71,81,90,98,106,112,117,122,125,126,127,126,125,122,117,112,106,98,90,81,71,60,49,37,25,12,0,-12,-25,-37,-49,-60,-71,-81,-90,-98,-106,-112,-117,-122,-125,-126,-127,-126,-125,-122,-117,-112,-106,-98,-90,-81,-71,-60,-49,-37,-25,-12};
@@ -377,7 +378,8 @@ static void scene_draw(void)
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
         } else {
             if (cache->sea != scene_phase) {
-                paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
+                /* Only the shooting star moves by itself: repaint its strip while it flies. */
+                if (scene_phase % 60U < 10U) paint_mark(90, 0, 150, 56);
             }
             if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(116, 0, 80, SEA_ROW + 12);
         }
@@ -854,6 +856,14 @@ static void arcade_draw(void)
         text(4, 228, notice, 1, TEXT, BACK);
     }
 }
+/* Screen position of one step of one orbit (0 drums, 1 synth). */
+static void orbit_point(unsigned ring, unsigned step, int *x, int *y)
+{
+    unsigned length = frame_loop[ring].sequence_length ? frame_loop[ring].sequence_length : 64U;
+    unsigned angle = (step % length) * 64U / length;
+    *x = (BEACH_SUN_X + (ring ? 34 : 25) * orbit_sine[angle] / 127) * 2;
+    *y = (BEACH_SUN_Y - (ring ? 17 : 11) * orbit_sine[(angle + 16U) & 63U] / 127) * 2;
+}
 /* The loop as two orbits around the star: drums on the inner one, the synth on
  * the outer. Every recorded step is a moon; a comet runs round as it plays.
  * Band painter only, over the finished scene. */
@@ -863,13 +873,13 @@ static void orbit_draw(void)
     for (unsigned ring = 0; ring < 2; ++ring) {
         const struct groove_view *v = &frame_loop[ring];
         unsigned length = v->sequence_length ? v->sequence_length : 64U;
-        int rx = ring ? 34 : 25, ry = ring ? 17 : 11;
         for (unsigned step = 0; step < length; ++step) {
-            unsigned angle = step * 64U / length, on = (unsigned)(v->active_steps >> step) & 1U;
+            unsigned on = (unsigned)(v->active_steps >> step) & 1U;
             unsigned behind = v->playing ? (v->play_step + length - step) % length : length;
             unsigned head = !behind, tail = behind > 0 && behind < 5, size = head ? 4 : on ? 3 : tail ? 2 : 1;
             if (!on && !head && !tail && (step & 1U)) continue;
-            int x = (BEACH_SUN_X + rx * orbit_sine[angle] / 127) * 2, y = (BEACH_SUN_Y - ry * orbit_sine[(angle + 16U) & 63U] / 127) * 2;
+            int x, y;
+            orbit_point(ring, step, &x, &y);
             uint16_t color = head ? (on ? TEXT : lane_color[7]) : on ? lane_color[ring ? 2 : 0]
                            : tail ? (behind < 3 ? lane_color[4] : BEACH_RGB(70, 110, 190))
                            : writing ? BEACH_RGB(190, 36, 60) : BEACH_RGB(110, 100, 180);
@@ -1001,12 +1011,28 @@ static void draw(void)
     unsigned drifting = smoke_seen | (scene_phase << 8);
     if ((smoke_seen || smoke_shown) && drifting != smoke_shown) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
     smoke_shown = smoke_seen ? drifting : 0;
-    /* The orbits move with the loop, faster than the sky drifts. */
+    /* The orbits move with the loop. Repaint only where the comet was and is:
+     * redrawing the whole sky every step made the keys late on the device. */
     const uint32_t loop[] = {frame_view.playing ? frame_view.play_step + 1U : 0U, writing,
                              (uint32_t)frame_view.active_steps, (uint32_t)(frame_view.active_steps >> 32),
                              (uint32_t)frame_synth.active_steps, (uint32_t)(frame_synth.active_steps >> 32)};
-    unsigned orbit = signature(7, loop, sizeof loop);
-    if (orbit != orbit_shown && view_page == PAGE_KIT) paint_mark(74, 0, 166, 86);
+    unsigned orbit = signature(7, loop + 1, sizeof loop - sizeof loop[0]);
+    if (view_page == PAGE_KIT) {
+        if (orbit != orbit_shown) paint_mark(74, 0, 166, 86); /* a moon came or went */
+        for (unsigned ring = 0; ring < 2; ++ring) {
+            unsigned head = frame_loop[ring].playing ? frame_loop[ring].play_step : 255U;
+            if (head == orbit_head[ring]) continue;
+            for (unsigned k = 0; k < 6; ++k)
+                for (unsigned which = 0; which < 2; ++which) {
+                    unsigned at = which ? head : orbit_head[ring];
+                    int x, y;
+                    if (at == 255U) continue;
+                    orbit_point(ring, at + 64U - k, &x, &y);
+                    paint_mark((unsigned)clamp(x - 11, 0, 216), (unsigned)clamp(y - 11, 0, 88), 23, 23);
+                }
+            orbit_head[ring] = (uint8_t)head;
+        }
+    }
     orbit_shown = orbit;
     if (frame_view.playing && !frame_view.play_step && loop[0] && !glitch) { glitch = 1U + (frame_time & 255U); glitch_until = frame_time + 70U; }
     leds();
@@ -1465,8 +1491,8 @@ static void knife_hit(int dx, int dy, int r)
 static void knives_step(void)
 {
     game_tick();
-    knife_a += 9U + game_speed * 7U;
-    knife_b += 5U + game_speed * 5U;
+    knife_a += (90U + game_speed * 70U) / 34U; /* 3.4 times slower than it first was */
+    knife_b += (50U + game_speed * 50U) / 34U;
     int tx, ty, r = (int)knife_size;
     knife_target(&tx, &ty);
     for (unsigned i = 0; i < BLADES; ++i) {
@@ -1520,14 +1546,26 @@ static void game_knobs(const struct fm1_controls *controls, uint32_t now)
         say(line, now, 1200);
     }
 }
+/* A game chord counts only when its keys go down together, within a tenth of
+ * a second, with no other key held: playing through those notes must not
+ * open a game in the middle of a take. */
+static uint32_t key_pressed[27];
+static unsigned chord_struck(uint32_t chord, uint32_t keys, uint32_t key_down, uint32_t now)
+{
+    if (keys != chord || !(key_down & chord)) return 0;
+    for (unsigned key = 0; key < 27; ++key)
+        if ((chord & (1U << key)) && now - key_pressed[key] > 100U) return 0;
+    return 1;
+}
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
     uint32_t pressed = controls->buttons & ~previous_buttons, previous_arp = previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
-    unsigned chord = (controls->keys & COIN_CHORD) == COIN_CHORD && (previous_keys & COIN_CHORD) != COIN_CHORD;
-    unsigned block_chord = (controls->keys & BLOCK_CHORD) == BLOCK_CHORD && (previous_keys & BLOCK_CHORD) != BLOCK_CHORD;
-    unsigned knife_chord = (controls->keys & KNIFE_CHORD) == KNIFE_CHORD && (previous_keys & KNIFE_CHORD) != KNIFE_CHORD &&
-                           !(controls->keys & COIN_CHORD);
+    for (unsigned key = 0; key < 27; ++key)
+        if (key_down & (1U << key)) key_pressed[key] = now;
+    unsigned chord = chord_struck(COIN_CHORD, controls->keys, key_down, now);
+    unsigned block_chord = chord_struck(BLOCK_CHORD, controls->keys, key_down, now);
+    unsigned knife_chord = chord_struck(KNIFE_CHORD, controls->keys, key_down, now);
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
     blocked_keys &= controls->keys;
