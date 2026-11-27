@@ -15,6 +15,9 @@
   p { margin:10px 0; } .dim { color:var(--dim); font-size:14px; }
   section { margin-top:26px; padding:18px; background:var(--panel); border:1px solid var(--line); }
   h2 { margin:0 0 12px; font-size:14px; letter-spacing:.28em; color:var(--blue); }
+  canvas { cursor:grab; touch-action:none; }
+  canvas.dragging { cursor:grabbing; }
+  input[type=range] { flex:1; min-width:160px; accent-color:var(--red); }
   canvas { display:block; width:100%; max-width:480px; aspect-ratio:120/56; image-rendering:pixelated; background:#000; border:1px solid var(--line); }
   .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
   button,select,input[type=file] { font:inherit; color:var(--text); background:#0b0718; border:2px solid var(--line); padding:9px 14px; }
@@ -41,8 +44,14 @@
     <div class="row">
       <label><input id="fit" type="checkbox" checked> Fill the screen (crop the edges)</label>
     </div>
-    <p class="dim">Preview, as the FM-1 will show it:</p>
+    <p class="dim">Preview, as the FM-1 will show it. Drag to move the picture; scroll, pinch or use the slider to zoom.</p>
     <canvas id="preview" width="120" height="56"></canvas>
+    <div class="row">
+      <label for="zoom">Zoom</label>
+      <input id="zoom" type="range" min="1" max="8" step="0.01" value="1">
+      <output id="zoomValue" for="zoom">1.0x</output>
+      <button id="reset" type="button">Reset</button>
+    </div>
   </section>
 
   <section>
@@ -68,6 +77,9 @@
   const B = FM1Background, $ = id => document.getElementById(id);
   const canvas = $('preview'), context = canvas.getContext('2d', { willReadFrequently: true });
   let image = null, midi = null, fm = null, busy = false;
+  // View of the picture: zoom on top of the fit, and the picture's centre
+  // offset from the screen's centre, in screen pixels (120 x 56).
+  const view = { zoom: 1, x: 0, y: 0 };
 
   function say(text, bad) { $('status').textContent = text; $('status').className = bad ? 'bad' : ''; }
   function refresh() {
@@ -79,16 +91,75 @@
     context.fillStyle = '#000';
     context.fillRect(0, 0, B.WIDTH, B.HEIGHT);
     if (!image) return;
-    const fill = $('fit').checked;
-    const scale = (fill ? Math.max : Math.min)(B.WIDTH / image.width, B.HEIGHT / image.height);
-    const w = image.width * scale, h = image.height * scale;
+    const w = image.width * scale(), h = image.height * scale();
+    // Keep some of the picture on screen however far it is dragged.
+    view.x = Math.max(-(w + B.WIDTH) / 2 + 8, Math.min((w + B.WIDTH) / 2 - 8, view.x));
+    view.y = Math.max(-(h + B.HEIGHT) / 2 + 8, Math.min((h + B.HEIGHT) / 2 - 8, view.y));
     context.imageSmoothingQuality = 'high';
-    context.drawImage(image, (B.WIDTH - w) / 2, (B.HEIGHT - h) / 2, w, h);
+    context.drawImage(image, (B.WIDTH - w) / 2 + view.x, (B.HEIGHT - h) / 2 + view.y, w, h);
+    $('zoom').value = view.zoom;
+    $('zoomValue').textContent = view.zoom.toFixed(1) + 'x';
   }
+  function scale() {
+    if (!image) return 1;
+    return ($('fit').checked ? Math.max : Math.min)(B.WIDTH / image.width, B.HEIGHT / image.height) * view.zoom;
+  }
+  // Screen position (in 120 x 56 pixels) of a pointer or wheel event.
+  function point(event) {
+    const box = canvas.getBoundingClientRect();
+    return { x: (event.clientX - box.left) * B.WIDTH / box.width, y: (event.clientY - box.top) * B.HEIGHT / box.height };
+  }
+  // Zoom so that the picture stays put under the given screen point.
+  function zoomTo(zoom, at) {
+    const next = Math.max(1, Math.min(8, zoom)), ratio = next / view.zoom;
+    const cx = at.x - B.WIDTH / 2, cy = at.y - B.HEIGHT / 2;
+    view.x = cx - (cx - view.x) * ratio;
+    view.y = cy - (cy - view.y) * ratio;
+    view.zoom = next;
+    draw();
+  }
+  const pointers = new Map();
+  let pinch = 0;
+  canvas.addEventListener('pointerdown', event => {
+    if (!image) return;
+    canvas.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, point(event));
+    pinch = 0;
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', event => {
+    const before = pointers.get(event.pointerId);
+    if (!before) return;
+    const now = point(event);
+    pointers.set(event.pointerId, now);
+    if (pointers.size === 1) {
+      view.x += now.x - before.x;
+      view.y += now.y - before.y;
+      draw();
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()], spread = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch) zoomTo(view.zoom * spread / pinch, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      pinch = spread;
+    }
+  });
+  const release = event => {
+    pointers.delete(event.pointerId);
+    pinch = 0;
+    if (!pointers.size) canvas.classList.remove('dragging');
+  };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('wheel', event => {
+    if (!image) return;
+    event.preventDefault();
+    zoomTo(view.zoom * Math.exp(-event.deltaY * 0.0015), point(event));
+  }, { passive: false });
+  $('zoom').oninput = () => zoomTo(+$('zoom').value, { x: B.WIDTH / 2, y: B.HEIGHT / 2 });
+  $('reset').onclick = () => { view.zoom = 1; view.x = view.y = 0; draw(); };
   $('file').onchange = async () => {
     const file = $('file').files[0];
     if (!file) return;
-    try { image = await createImageBitmap(file); draw(); say('Picture ready.'); }
+    try { image = await createImageBitmap(file); view.zoom = 1; view.x = view.y = 0; draw(); say('Picture ready. Drag and zoom to frame it.'); }
     catch { image = null; draw(); say('That file could not be read as a picture.', true); }
     refresh();
   };
