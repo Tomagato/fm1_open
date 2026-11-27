@@ -956,6 +956,11 @@ static void kit_prepare(uint32_t now)
                 fx_applied = 0; /* the smoke macro starts again from these */
             }
         }
+        /* The loop runs on the FM-1's own clock, always. External MIDI clock is a
+         * saved device setting: with nothing sending clock the loop sits on its
+         * first step and stops after two seconds, and this screen has no words
+         * to say why. (Holding ARP used to switch it; that is gone.) */
+        if (groove_clock_mode() != GROOVE_CLOCK_INTERNAL) groove_settings_clock(GROOVE_CLOCK_INTERNAL);
         /* Settings left by other firmware must not silence the kit. */
         if (groove_track_role(KIT) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(KIT, GROOVE_TRACK_NORMAL);
         if (groove_midi_setting(KIT, 0) == 2) groove_settings_midi(KIT, 0, -1);
@@ -1556,15 +1561,8 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         octave = clamp(octave + (pressed & BUTTON(OCT_UP) ? 1 : -1), -2, 2);
     }
     if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
-    /* ARP is note repeat for the drums: each tap steps through four rates,
-     * then off. Holding ARP swaps the clock source. */
+    /* ARP is note repeat for the drums: each tap steps through four rates, then off. */
     if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
-    if ((controls->buttons & BUTTON(ARP)) && !arp_fired && now - arp_since >= 1000U) {
-        arp_fired = 1;
-        unsigned external = groove_clock_mode() != GROOVE_CLOCK_MIDI;
-        groove_settings_clock(external ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
-        say(external ? "SYNC: MIDI CLOCK" : "SYNC: INTERNAL", now, 1500);
-    }
     if ((previous_arp & ~controls->buttons & BUTTON(ARP)) && !arp_fired) {
         if (!release_keys()) return;
         if (!groove_arp_enabled(KIT)) groove_arp_set(KIT, 1);
@@ -1596,7 +1594,6 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
             else groove_effects_edit(3, encoder_delta(2 + col, turn));
         } else if (col == 3) {
             groove_tempo_edit(turn);
-            if (groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - HOLD ARP FOR INTERNAL", now, 2000);
         } else if (synth_mode) {
             if (col == 0) groove_control_edit(SYNTH, 0, encoder_delta(2 + col, turn), 0);
             else fx_knob(FX_SYNTH_REVERB + col - 1U, turn);

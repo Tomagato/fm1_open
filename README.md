@@ -20,8 +20,7 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
 | OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high), always in the chosen scale, and pushes the smoke, and so the effects, somewhere new. Any key drops a coin above it. K1 SMOKE, K2 SCALE, K3 number of COINS, K4 SPEED. The same three keys, or HOME, leave |
 | OP4 + OP5 together | Knives: a spinning target darts round the wall and any key throws a knife from above it. A hit plays a note, a figure or, on a bullseye, a ten-note run with drums and a glitch, all in the scale; a miss gets a rim shot. K1 SMOKE, K2 SCALE, K3 target SIZE, K4 target SPEED |
-| ARP (tap) | Drum repeat: four rates, then off. A held pad retriggers in time |
-| ARP (hold) | Internal tempo or external MIDI clock |
+| ARP | Drum repeat: four rates, then off. A held pad retriggers in time |
 | OP6 + PIT + GLO together | Tide Blocks, a falling-block game (OCT moves, SEQ turns, REC drops). The same three keys leave |
 | GLO | Bluetooth MIDI: tap shows the link; hold closes it, or swaps between waiting for a phone or computer and searching for a Bluetooth MIDI controller |
 | SAVE | Store the sound settings (project slot 16; other slots are never written) |
