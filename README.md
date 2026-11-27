@@ -17,7 +17,8 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | K1 to K4 | Synth: VOLUME, REVERB, DELAY, TEMPO. Drums: LEVEL, TUNE, DECAY of the last pad hit, TEMPO |
 | FX | Switch K1 to K4 to REVERB send, DELAY send, delay FEEDBACK, FX LEVEL |
 | ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
-| OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high) and sends the smoke, and so the effects, somewhere new. Any key drops a coin above it. The same three keys, or HOME, leave |
+| OP1 + OP2 + OP3 together | Coin pusher: a coin machine fills the screen. Each coin that goes over the edge plays a synth note chosen by where it fell (fifteen slots, low to high), always in the chosen scale, and pushes the smoke, and so the effects, somewhere new. Any key drops a coin above it. K1 SMOKE, K2 SCALE, K3 number of COINS, K4 SPEED. The same three keys, or HOME, leave |
+| OP4 + OP5 together | Knives: a spinning target darts round the wall and any key throws a knife from above it. A hit plays a note, a figure or, on a bullseye, a ten-note run with drums and a glitch, all in the scale; a miss gets a rim shot. K1 SMOKE, K2 SCALE, K3 target SIZE, K4 target SPEED |
 | ARP (tap) | Drum repeat: four rates, then off. A held pad retriggers in time |
 | ARP (hold) | Internal tempo or external MIDI clock |
 | LFO | Tide Blocks, a falling-block game (OCT moves, SEQ turns, REC drops) |
@@ -32,6 +33,10 @@ A one-page cheat sheet of every control: <https://tomagato.github.io/fm1_open/ch
 ## Reading the screen
 
 There are no numbers and no step grid on the main page. The loop is drawn as two orbits around the red star: drums on the inner one, the synth on the outer, one moon for every step that has something recorded, and a comet that runs round as the loop plays and flares when it hits a moon. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, effects level, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
+
+## Scales
+
+The two games share one scale, chosen with K2: minor pentatonic, major pentatonic, Hijaz, Hijaz Kar, Kurd, Nahawand, Bayati, Rast and Saba, all from A. Bayati, Rast and Saba have half-flat degrees; while a game is open the synth track is retuned with the engine's per-note tuning (`groove_tuning_set`) so those degrees are a quarter tone flat, and it goes back to equal temperament when you leave.
 
 ## Background picture
 

@@ -141,7 +141,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BITCH909";
 static const char old_kit_name[] = "BEACH 909"; /* what earlier builds called it; their saved loops still load */
-enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, GAME_W = 8, GAME_H = 14 };
+enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, PAGE_KNIVES, GAME_W = 8, GAME_H = 14 };
 
 static unsigned drum;
 /* The loop: REC records what is played into a four-bar loop on the track the
@@ -160,11 +160,27 @@ static unsigned names_program = ~0U;
 /* Coin pusher (OP1+OP2+OP3). Positions are in eighths of a logical pixel on a
  * 120x120 field. A coin that goes over the front edge plays a note chosen by
  * where it fell and moves the smoke, which is the effects macro. */
-enum { COINS = 30, COIN_R = 5, COIN_LEFT = 12, COIN_RIGHT = 108, COIN_BACK = 22, COIN_EDGE = 86, COIN_TICK = 80,
-       COIN_CHORD = (1U << 1) | (1U << 3) | (1U << 5) };
+enum { COINS = 30, COIN_R = 5, COIN_LEFT = 12, COIN_RIGHT = 108, COIN_BACK = 22, COIN_EDGE = 86,
+       COIN_CHORD = (1U << 1) | (1U << 3) | (1U << 5), KNIFE_CHORD = (1U << 8) | (1U << 10) };
 static struct coin { int16_t x, y; uint8_t state, age; } coins[COINS]; /* state: 0 none, 1 on the table, 2 falling */
-static struct { uint8_t note, channel, ticks; } coin_notes[4];
+static struct { uint8_t note, channel, ticks; } coin_notes[6];
 static unsigned coin_phase, coin_next, coin_frame, coin_target;
+/* Both games play in one scale, so whatever chance does is in tune. The maqam
+ * scales use the engine's per-note tuning for their half-flat degrees. */
+static const struct scale { const char *name; uint8_t count, step[7]; int8_t cents[7]; } scales[] = {
+    {"SCALE: MINOR PENTATONIC", 5, {0, 3, 5, 7, 10}, {0}},  {"SCALE: MAJOR PENTATONIC", 5, {0, 2, 4, 7, 9}, {0}},
+    {"SCALE: HIJAZ", 7, {0, 1, 4, 5, 7, 8, 10}, {0}},       {"SCALE: HIJAZ KAR", 7, {0, 1, 4, 5, 7, 8, 11}, {0}},
+    {"SCALE: KURD", 7, {0, 1, 3, 5, 7, 8, 10}, {0}},        {"SCALE: NAHAWAND", 7, {0, 2, 3, 5, 7, 8, 11}, {0}},
+    {"SCALE: BAYATI", 7, {0, 2, 3, 5, 7, 8, 10}, {0, -50}}, {"SCALE: RAST", 7, {0, 2, 4, 5, 7, 9, 11}, {0, 0, -50, 0, 0, 0, -50}},
+    {"SCALE: SABA", 7, {0, 2, 3, 4, 7, 8, 10}, {0, -50}}};
+enum { SCALES = sizeof scales / sizeof scales[0], SCALE_ROOT = 45 };
+static unsigned game_scale, game_smoke = 60, coin_cap = 22, game_speed = 3;
+static struct { uint8_t note, velocity, wait; } burst[12];
+/* Knife throwing (OP4+OP5): a target that will not hold still. */
+enum { BLADES = 4, STUCK = 6 };
+static struct { int16_t x, y; uint8_t live; } blades[BLADES];
+static struct { int8_t x, y; } stuck[STUCK];
+static unsigned stuck_count, knife_a, knife_b, knife_flash, knife_size = 14;
 static uint32_t coin_at, coin_random;
 static unsigned view_page = PAGE_SPLASH;
 static uint32_t splash_at, glitch_until;
@@ -173,7 +189,7 @@ static uint32_t splash_at, glitch_until;
 static unsigned glitch;
 /* The vape: a pen on the moon. `smoke` is how much it gives off, 0 to 100; at
  * 100 the cloud covers the whole screen. Not saved with the pattern. */
-static unsigned smoke, smoke_drift = 2, smoke_shown;
+static unsigned smoke, smoke_drift = 2, smoke_shown, smoke_seen;
 /* Smoke is also the effects macro: it pushes both reverb and delay sends and
  * the delay feedback from where the player set them up to full. */
 enum { FX_KIT_REVERB, FX_KIT_DELAY, FX_SYNTH_REVERB, FX_SYNTH_DELAY, FX_FEEDBACK, FX_COUNT, FX_FEEDBACK_TOP = 85 };
@@ -317,7 +333,7 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
 static unsigned smoke_at(unsigned x, unsigned y)
 {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
-    int dx = (int)x - BEACH_VAPE_TIP_X, dy = (int)y - BEACH_VAPE_TIP_Y, reach = (int)(smoke * smoke) / 34;
+    int dx = (int)x - BEACH_VAPE_TIP_X, dy = (int)y - BEACH_VAPE_TIP_Y, reach = (int)(smoke_seen * smoke_seen) / 34;
     int distance = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy / 2 : dy * 2);
     if (distance >= reach + 12) return 0;
     unsigned roll = scene_phase * smoke_drift;
@@ -503,11 +519,6 @@ static uint16_t coin_pixel(int x, int y, const uint8_t *near, unsigned count)
 }
 static void coins_draw(void)
 {
-    if (!paint_rendering) {
-        if (cache->status != coin_frame) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
-        cache->status = coin_frame;
-        return;
-    }
     unsigned stride = paint_end - paint_x;
     for (unsigned row = paint_top; row < paint_top + PAINT_ROWS; row += 2) {
         uint8_t near[COINS];
@@ -742,6 +753,68 @@ static void game_draw(void)
             paint_fill(88 + column * 8, 116 + row * 8, 7, 7, board[row][column] ? lane_color[board[row][column] - 1U] : INK);
         }
 }
+static void knife_target(int *x, int *y)
+{
+    *x = 60 + 40 * orbit_sine[(knife_a >> 3) & 63U] / 127;
+    *y = 34 + 15 * orbit_sine[(knife_b >> 3) & 63U] / 127;
+}
+static uint16_t knife_pixel(int x, int y)
+{
+    for (unsigned i = 0; i < BLADES; ++i) {
+        int dx = x - blades[i].x, dy = y - blades[i].y;
+        if (!blades[i].live || dy < 0 || dy > 15 || dx < -1 || dx > 1) continue;
+        if (dy < 10) { if (dx == 0 || (dy > 2 && dx == -1)) return dx ? BEACH_RGB(150, 160, 186) : BEACH_RGB(236, 240, 250); }
+        else if (dy == 10) return BEACH_RGB(255, 206, 110);
+        else return dx ? BEACH_RGB(120, 16, 30) : BEACH_RGB(232, 36, 48);
+    }
+    int tx, ty, r = (int)knife_size;
+    knife_target(&tx, &ty);
+    int dx = x - tx, dy = y - ty, d = dx * dx + dy * dy;
+    for (unsigned i = 0; i < stuck_count; ++i) { /* handles of the knives already in it */
+        int hx = dx - stuck[i].x, hy = dy - stuck[i].y;
+        if (hx >= -1 && hx <= 0 && hy >= 0 && hy <= 6) return hy == 0 ? BEACH_RGB(255, 206, 110) : BEACH_RGB(232, 36, 48);
+    }
+    if (d <= r * r) {
+        static const uint16_t rings[5] = {BEACH_RGB(232, 36, 48), BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),
+                                          BEACH_RGB(244, 244, 244), BEACH_RGB(232, 36, 48)};
+        /* The board spins: alternate quarters are shaded. */
+        int c = orbit_sine[((knife_a >> 2) + 16U) & 63U], n = orbit_sine[(knife_a >> 2) & 63U];
+        uint16_t color = rings[d * 5 / (r * r + 1)];
+        if (((dx * c + dy * n) > 0) != ((dy * c - dx * n) > 0) && d * 5 / (r * r + 1)) color = (uint16_t)((color >> 1) & 0x7befU);
+        return color;
+    }
+    if (d <= (r + 2) * (r + 2)) return BEACH_RGB(20, 12, 36);
+    if (knife_flash && d <= (r + 9) * (r + 9) && ((x ^ y) & 1)) return BEACH_RGB(255, 236, 150); /* a hit rings the board */
+    if (y >= 110) return (x % 4 == 2 && y < 114) ? BEACH_RGB(206, 212, 228) : y == 110 ? BEACH_RGB(190, 198, 216) : BEACH_RGB(22, 12, 44);
+    if (y < 6) return (x % 8 == 4 && y == 3) ? (((unsigned)x / 8U + coin_frame / 2U) % 3U ? BEACH_RGB(120, 60, 20) : BEACH_RGB(255, 236, 150)) : BEACH_RGB(90, 14, 34);
+    return x % 14 == 0 ? BEACH_RGB(24, 12, 44) : ((x / 14 + y / 20) & 1) ? BEACH_RGB(58, 30, 84) : BEACH_RGB(50, 24, 74);
+}
+/* Full-screen painter for the two games, and the last message over the top. */
+static void arcade_draw(void)
+{
+    if (!paint_rendering) {
+        if (cache->status != coin_frame) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
+        cache->status = coin_frame;
+        return;
+    }
+    if (view_page == PAGE_COINS) coins_draw();
+    else {
+        unsigned stride = paint_end - paint_x;
+        for (unsigned row = paint_top; row < paint_top + PAINT_ROWS; row += 2) {
+            uint16_t *out = paint_pixels + (row - paint_top) * stride, color = 0;
+            unsigned last = ~0U;
+            for (unsigned col = paint_x; col < paint_end; ++col) {
+                if ((col >> 1) != last) { last = col >> 1; color = knife_pixel((int)last, (int)(row >> 1)); }
+                out[col - paint_x] = color;
+            }
+            memcpy(out + stride, out, stride * sizeof *out);
+        }
+    }
+    if (notice) {
+        paint_fill(0, 226, FM1_SCREEN_WIDTH, 11, BACK);
+        text(4, 228, notice, 1, TEXT, BACK);
+    }
+}
 /* The loop as two orbits around the star: drums on the inner one, the synth on
  * the outer. Every recorded step is a moon; a comet runs round as it plays.
  * Band painter only, over the finished scene. */
@@ -775,7 +848,7 @@ static void draw_page(void)
         cache->shown = view_page;
         paint_fill(0, SCENE_ROWS, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT - SCENE_ROWS, BACK);
     }
-    if (view_page == PAGE_COINS) { coins_draw(); return; }
+    if (view_page == PAGE_COINS || view_page == PAGE_KNIVES) { arcade_draw(); return; }
     scene_draw();
     if (view_page == PAGE_SPLASH) splash_draw();
     else if (view_page == PAGE_GAME) game_draw();
@@ -796,6 +869,7 @@ static void leds(void)
     if (!synth_mode && view_page == PAGE_KIT)
         for (unsigned lane = 0; lane < 8; ++lane) bits ^= (1U << pad_keys[lane]) | (1U << white_keys[lane]);
     if (view_page == PAGE_COINS) bits = (frame_time / 120U) & 1U ? COIN_CHORD : 0;
+    if (view_page == PAGE_KNIVES) bits = (frame_time / 120U) & 1U ? KNIFE_CHORD : 0;
     uint32_t changed = bits ^ led_cache;
     for (unsigned key = 0; key < 27; ++key)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
@@ -864,6 +938,9 @@ static void draw(void)
     /* Snare and clap tear the picture for a moment; the splash never settles. */
     if (view_page == PAGE_SPLASH) { glitch = 1U + (frame_time / 120U) % 250U; glitch_until = frame_time + 200U; }
     if (glitch && (int32_t)(frame_time - glitch_until) >= 0) glitch = 0;
+    /* In the games the smoke still drives the effects in full, but only a
+     * thin haze of it is drawn so the game stays visible. */
+    smoke_seen = (view_page == PAGE_COINS || view_page == PAGE_KNIVES) && smoke > 38 ? 38 : smoke;
     paint_priority = 0;
     cache = &saved_cache;
     draw_page();
@@ -909,7 +986,7 @@ static void paint_flush(void)
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
         draw_page();
-        if (view_page == PAGE_KIT) orbit_draw();
+        if (view_page == PAGE_KIT) orbit_draw(); /* never over the games */
         if (smoke) smoke_draw();
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
@@ -1163,7 +1240,7 @@ static void coin_drop(unsigned x)
     unsigned live = 0, front = 0;
     for (unsigned i = 0; i < COINS; ++i)
         if (coins[i].state == 1) { ++live; if (coins[i].y > coins[front].y || coins[front].state != 1) front = i; }
-    if (live >= COINS - 4U) coins[front].y = (int16_t)(COIN_EDGE * 8 + 1);
+    if (live >= coin_cap) coins[front].y = (int16_t)(COIN_EDGE * 8 + 1);
     for (unsigned i = 0; i < COINS; ++i)
         if (!coins[i].state) {
             coins[i].x = (int16_t)(clamp((int)x, COIN_LEFT, COIN_RIGHT) * 8);
@@ -1175,36 +1252,80 @@ static void coin_drop(unsigned x)
 }
 static void coin_notes_off(unsigned all)
 {
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 6; ++i)
         if (coin_notes[i].ticks && (all || !--coin_notes[i].ticks)) {
             (void)post((uint8_t)(0x80 + coin_notes[i].channel), coin_notes[i].note, 0, 3);
             coin_notes[i].ticks = 0;
         }
+    if (all) memset(burst, 0, sizeof burst);
 }
-/* A coin went over the edge: fifteen slots across the front, low notes on the
- * left, a minor pentatonic over three octaves. Each fall also picks a new
- * place for the smoke to drift to, and the smoke is the effects macro. */
-static void coin_fall(int x)
+/* The note `index` steps up the chosen scale from A2. */
+static unsigned scale_note(unsigned index)
 {
-    static const uint8_t scale[5] = {0, 3, 5, 7, 10};
-    unsigned zone = (unsigned)clamp((x - (COIN_LEFT - COIN_R)) * 15 / 107, 0, 14), slot = 0;
-    unsigned note = 45U + 12U * (zone / 5U) + scale[zone % 5U], channel = groove_midi_input_channel(SYNTH);
-    for (unsigned i = 1; i < 4; ++i)
+    const struct scale *sc = &scales[game_scale];
+    return SCALE_ROOT + 12U * (index / sc->count) + sc->step[index % sc->count];
+}
+/* Tune the synth to the scale (half-flats for the maqamat), or back to equal. */
+static void scale_tune(unsigned on)
+{
+    struct groove_tuning tuning;
+    memset(&tuning, 0, sizeof tuning);
+    const struct scale *sc = &scales[game_scale];
+    if (on)
+        for (unsigned i = 0; i < sc->count; ++i) tuning.main[(SCALE_ROOT + sc->step[i]) % 12U] = sc->cents[i];
+    (void)groove_tuning_set(SYNTH, &tuning);
+}
+static void game_note(unsigned note, unsigned velocity, unsigned ticks)
+{
+    unsigned slot = 0, channel = groove_midi_input_channel(SYNTH);
+    for (unsigned i = 1; i < 6; ++i)
         if (coin_notes[i].ticks < coin_notes[slot].ticks) slot = i;
     if (coin_notes[slot].ticks) (void)post((uint8_t)(0x80 + coin_notes[slot].channel), coin_notes[slot].note, 0, 3);
-    if (!post((uint8_t)(0x90 + channel), (uint8_t)note, (uint8_t)(64U + coin_roll(56)), 3)) return;
+    coin_notes[slot].ticks = 0;
+    if (note > 127 || !post((uint8_t)(0x90 + channel), (uint8_t)note, (uint8_t)velocity, 3)) return;
     coin_notes[slot].note = (uint8_t)note;
     coin_notes[slot].channel = (uint8_t)channel;
-    coin_notes[slot].ticks = (uint8_t)(3U + coin_roll(8));
-    coin_target = coin_roll(86);
+    coin_notes[slot].ticks = (uint8_t)ticks;
     pulse_until = frame_time + 120U;
+}
+static void game_drum(unsigned pad, unsigned velocity)
+{
+    unsigned note = groove_pad_note(KIT, pad), channel = groove_midi_input_channel(KIT);
+    if (note > 127 || !post((uint8_t)(0x90 + channel), (uint8_t)note, (uint8_t)velocity, 3)) return;
+    (void)post((uint8_t)(0x80 + channel), (uint8_t)note, 0, 3);
+}
+/* Queue a note for `wait` ticks from now. */
+static void game_later(unsigned note, unsigned velocity, unsigned wait)
+{
+    for (unsigned i = 0; i < 12; ++i)
+        if (!burst[i].wait) {
+            burst[i].note = (uint8_t)note; burst[i].velocity = (uint8_t)velocity; burst[i].wait = (uint8_t)(wait + 1U);
+            return;
+        }
+}
+/* Shared by both games each tick: queued notes, note-offs, smoke drift. */
+static void game_tick(void)
+{
+    ++coin_frame;
+    coin_notes_off(0);
+    for (unsigned i = 0; i < 12; ++i)
+        if (burst[i].wait && !--burst[i].wait) game_note(burst[i].note, burst[i].velocity, 3);
+    if (smoke != coin_target) smoke = (unsigned)((int)smoke + clamp((int)coin_target - (int)smoke, -4, 4));
+    if (knife_flash) --knife_flash;
+}
+/* A coin went over the edge: fifteen slots across the front, low on the left,
+ * each the next step of the scale. Every fall also sends the smoke, which is
+ * the effects macro, somewhere new below the SMOKE knob. */
+static void coin_fall(int x)
+{
+    unsigned zone = (unsigned)clamp((x - (COIN_LEFT - COIN_R)) * 15 / 107, 0, 14);
+    game_note(scale_note(zone), 64U + coin_roll(56), 3U + coin_roll(8));
+    coin_target = game_smoke ? coin_roll(game_smoke + 1U) : 0;
 }
 static void coins_step(void)
 {
-    ++coin_frame;
+    game_tick();
     coin_phase = (coin_phase + 1U) % 60U;
-    coin_notes_off(0);
-    if (smoke != coin_target) smoke = (unsigned)((int)smoke + clamp((int)coin_target - (int)smoke, -3, 3));
     if (!coin_next--) {
         coin_drop(COIN_LEFT + coin_roll(COIN_RIGHT - COIN_LEFT + 1));
         coin_next = 2U + coin_roll(7);
@@ -1254,17 +1375,106 @@ static void coins_enter(uint32_t now)
     coin_phase = coin_frame = coin_next = 0;
     coin_target = smoke;
     coin_at = now;
-    for (unsigned i = 0; i < 16; ++i) {
+    for (unsigned i = 0; i < 16 && i + 4U < coin_cap; ++i) {
         coin_drop(COIN_LEFT + coin_roll(COIN_RIGHT - COIN_LEFT + 1));
         coins[i].y = (int16_t)((62U + coin_roll(22)) * 8U);
     }
+    scale_tune(1);
     view_page = PAGE_COINS;
+}
+/* A knife reached the board. The closer to the middle, the wilder the answer,
+ * always in the scale. */
+static void knife_hit(int dx, int dy, int r)
+{
+    unsigned ring = (unsigned)((dx * dx + dy * dy) * 4 / (r * r + 1));
+    stuck[stuck_count % STUCK].x = (int8_t)dx;
+    stuck[stuck_count % STUCK].y = (int8_t)dy;
+    if (stuck_count < STUCK) ++stuck_count;
+    knife_flash = 2;
+    if (!ring) { /* bullseye: a run of ten, crash and kick, everything tears */
+        for (unsigned i = 0; i < 10; ++i) game_later(scale_note(coin_roll(21)), 80U + coin_roll(40), i);
+        game_drum(5, 120); game_drum(0, 120);
+        glitch = 1U + coin_roll(250); glitch_until = frame_time + 400U;
+        coin_target = 100;
+        stuck_count = 0;
+    } else if (ring == 1) { /* a rising figure from a random step */
+        unsigned from = coin_roll(10);
+        for (unsigned i = 0; i < 5; ++i) game_later(scale_note(from + i * (1U + coin_roll(2))), 96, i * 2U);
+        game_drum(3, 110);
+        coin_target = game_smoke;
+    } else { /* one note, plus its fifth-ish neighbour now and then */
+        unsigned at = coin_roll(15);
+        game_note(scale_note(at), 100, 5);
+        if (coin_roll(2)) game_later(scale_note(at + 2U), 84, 2);
+        game_drum(ring == 2 ? 1 : 6, 100);
+        coin_target = coin_roll(game_smoke + 1U);
+    }
+}
+static void knives_step(void)
+{
+    game_tick();
+    knife_a += 9U + game_speed * 7U;
+    knife_b += 5U + game_speed * 5U;
+    int tx, ty, r = (int)knife_size;
+    knife_target(&tx, &ty);
+    for (unsigned i = 0; i < BLADES; ++i) {
+        if (!blades[i].live) continue;
+        blades[i].y = (int16_t)(blades[i].y - 11);
+        int dx = blades[i].x - tx, dy = blades[i].y - ty;
+        if (dx * dx + dy * dy <= r * r) { blades[i].live = 0; knife_hit(dx, dy, r); }
+        else if (blades[i].y < -16) { blades[i].live = 0; game_drum(2, 70); } /* a miss clatters off the rim */
+    }
+    if (coin_target > game_smoke && smoke >= coin_target) coin_target = game_smoke / 2U;
+}
+static void knives_enter(uint32_t now)
+{
+    memset(blades, 0, sizeof blades);
+    memset(coin_notes, 0, sizeof coin_notes);
+    memset(burst, 0, sizeof burst);
+    coin_random ^= now * 2654435761U + 5U;
+    stuck_count = knife_flash = coin_frame = 0;
+    coin_target = smoke;
+    coin_at = now;
+    scale_tune(1);
+    view_page = PAGE_KNIVES;
+}
+/* K1-K4 inside either game: smoke ceiling, scale, then two of the game's own. */
+static void game_knobs(const struct fm1_controls *controls, uint32_t now)
+{
+    static char line[24];
+    int turn;
+    if ((turn = controls->encoders[2]) != 0) {
+        game_smoke = (unsigned)clamp((int)game_smoke + turn * 4, 0, 100);
+        coin_target = game_smoke;
+        say(game_smoke ? "SMOKE" : "SMOKE OFF", now, 900);
+    }
+    if ((turn = controls->encoders[3]) != 0) {
+        game_scale = (unsigned)clamp((int)game_scale + (turn > 0) - (turn < 0), 0, SCALES - 1);
+        scale_tune(1);
+        say(scales[game_scale].name, now, 1500);
+    }
+    unsigned coins_page = view_page == PAGE_COINS;
+    if ((turn = controls->encoders[4]) != 0) {
+        if (coins_page) coin_cap = (unsigned)clamp((int)coin_cap + turn, 4, COINS - 2);
+        else knife_size = (unsigned)clamp((int)knife_size + turn, 7, 20);
+        strcpy(line, coins_page ? "COINS: " : "TARGET: ");
+        decimal(line + strlen(line), (int)(coins_page ? coin_cap : knife_size), 1);
+        say(line, now, 1200);
+    }
+    if ((turn = controls->encoders[5]) != 0) {
+        game_speed = (unsigned)clamp((int)game_speed + (turn > 0) - (turn < 0), 1, 6);
+        strcpy(line, "SPEED: ");
+        decimal(line + strlen(line), (int)game_speed, 1);
+        say(line, now, 1200);
+    }
 }
 static void apply_controls(const struct fm1_controls *controls, uint32_t now, const struct fm1_ble_status *ble)
 {
     uint32_t pressed = controls->buttons & ~previous_buttons, previous_arp = previous_buttons;
     uint32_t key_down = controls->keys & ~previous_keys;
     unsigned chord = (controls->keys & COIN_CHORD) == COIN_CHORD && (previous_keys & COIN_CHORD) != COIN_CHORD;
+    unsigned knife_chord = (controls->keys & KNIFE_CHORD) == KNIFE_CHORD && (previous_keys & KNIFE_CHORD) != KNIFE_CHORD &&
+                           !(controls->keys & COIN_CHORD);
     previous_buttons = controls->buttons;
     previous_keys = controls->keys;
     blocked_keys &= controls->keys;
@@ -1320,25 +1530,32 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     else if (writing && !view.playing && !armed) writing = 0;
     groove_edit_record(writing, loop_track, 0);
 
-    /* OP1+OP2+OP3 together open and close the coin pusher. */
-    if (chord || (view_page == PAGE_COINS && (pressed & BUTTON(HOME)))) {
+    /* OP1+OP2+OP3 together open and close the coin pusher; OP4+OP5 the knives. */
+    unsigned in_game = view_page == PAGE_COINS || view_page == PAGE_KNIVES;
+    if (chord || knife_chord || (in_game && (pressed & BUTTON(HOME)))) {
+        unsigned wanted = (pressed & BUTTON(HOME)) ? PAGE_KIT : chord ? PAGE_COINS : PAGE_KNIVES;
         if (!release_keys()) return;
         blocked_keys = controls->keys;
-        if (view_page == PAGE_COINS) {
-            coin_notes_off(1);
-            smoke = 0;
-            view_page = PAGE_KIT;
-        } else coins_enter(now);
+        if (in_game) { coin_notes_off(1); scale_tune(0); smoke = 0; }
+        if (wanted == view_page || wanted == PAGE_KIT) view_page = PAGE_KIT;
+        else if (wanted == PAGE_COINS) coins_enter(now);
+        else knives_enter(now);
         return;
     }
-    if (view_page == PAGE_COINS) {
-        /* Any key drops a coin above it. */
-        for (unsigned key = 0; key < 27; ++key)
-            if ((key_down & ~blocked_keys) & (1U << key)) coin_drop(COIN_LEFT + key * (COIN_RIGHT - COIN_LEFT) / 26U);
-        while (now - coin_at >= COIN_TICK) {
-            coin_at += COIN_TICK;
+    if (in_game) {
+        game_knobs(controls, now);
+        unsigned tick = view_page == PAGE_COINS ? 150U - game_speed * 18U : 60U;
+        for (unsigned key = 0; key < 27; ++key) {
+            if (!((key_down & ~blocked_keys) & (1U << key))) continue;
+            if (view_page == PAGE_COINS) coin_drop(COIN_LEFT + key * (COIN_RIGHT - COIN_LEFT) / 26U);
+            else
+                for (unsigned i = 0; i < BLADES; ++i) /* a knife flies straight up from above the key */
+                    if (!blades[i].live) { blades[i].x = (int16_t)(8 + key * 4); blades[i].y = 108; blades[i].live = 1; break; }
+        }
+        while (now - coin_at >= tick) {
+            coin_at += tick;
             if (now - coin_at > 400U) coin_at = now;
-            coins_step();
+            if (view_page == PAGE_COINS) coins_step(); else knives_step();
         }
         return;
     }
