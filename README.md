@@ -31,9 +31,13 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 
 The kit also answers MIDI notes on channel 10.
 
+## Reading the screen
+
+There are no numbers on the main page. The four bars at the bottom left are K1 to K4: the name of each control and how far it is turned. The ten-sided radar on the right shows ten controls as one shape: level, tune and decay of the selected drum, tempo, swing, reverb, delay, feedback, smoke and synth volume, clockwise from the top. The spokes that K1 to K4 are on take the bars' colours. Tempo is the bar at the top right, flashing on the beat.
+
 ## Background picture
 
-<https://tomagato.github.io/fm1_open/background.html> puts your own picture behind the screen in place of the space scene. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The picture is kept in the last four sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
+<https://tomagato.github.io/fm1_open/background.html> puts your own picture behind the top half of the screen. It is the back layer: the logo star, the e-cigarette, the stars, the smoke and the glitch all play over it. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The picture is kept in the last four sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
 
 ## Install
 

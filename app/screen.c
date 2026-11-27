@@ -171,6 +171,10 @@ static uint8_t key_channel[27];
 static struct groove_view frame_synth;
 static uint8_t frame_synth_sends[2];
 static char frame_voice[11];
+/* The radar: ten controls on ten spokes, each 0 to 100. No numbers anywhere. */
+enum { RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO, RADAR_SWING, RADAR_REVERB, RADAR_DELAY,
+       RADAR_FEEDBACK, RADAR_SMOKE, RADAR_SYNTH, RADAR_AXES, RADAR_X = 196, RADAR_Y = 161, RADAR_R = 30 };
+static uint8_t frame_radar[RADAR_AXES], frame_axis[4];
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
 static uint8_t game_cells[GAME_H][GAME_W];
 static struct { int x, y; unsigned kind, turn; } game_piece;
@@ -194,7 +198,7 @@ static uint8_t frame_pots[GROOVE_TONE_PARAMS], frame_sends[2], frame_effects[4];
 static unsigned frame_step_drums, frame_swing, frame_samples, frame_dirty;
 struct draw_cache {
     unsigned shown;
-    uint32_t scene, sea, sun, effects, status, hint, foot[4], lane[8];
+    uint32_t scene, sea, sun, effects, status, hint, radar, foot[4], lane[8];
     uint8_t cell[8][16], game[GAME_H][GAME_W];
 };
 static struct draw_cache saved_cache, band_cache, *cache = &saved_cache;
@@ -289,12 +293,7 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
-    /* A picture sent from the browser replaces the built-in scene. */
-    uint16_t color;
-    if (scene_picture) {
-        const uint8_t *pixel = scene_picture + (y * GROOVE_BACKGROUND_W + x) * 2U;
-        color = (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
-    } else color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark, smoke != 0);
+    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark, smoke != 0, scene_picture);
     if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
     else if (torn == 2) color |= 0xf81fU;
     return color;
@@ -335,9 +334,9 @@ static void scene_draw(void)
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
         } else {
             if (cache->sea != scene_phase) {
-                if (!scene_picture) paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
+                paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
             }
-            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) if (!scene_picture) paint_mark(116, 0, 80, SEA_ROW + 12);
+            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(116, 0, 80, SEA_ROW + 12);
         }
         cache->sea = scene_phase;
         cache->sun = scene_pulse | ((uint32_t)scene_mark << 1);
@@ -376,7 +375,7 @@ static void status_draw(void)
     const struct groove_view *v = &frame_view;
     unsigned bars = v->sequence_length / 16U, blink = (frame_time / 250U) & 1U;
     unsigned recording = writing || (armed && blink);
-    const unsigned state[] = {synth_mode ? 64U + frame_synth.program + ((unsigned)(octave + 2) << 8) : drum, v->tempo, v->playing, recording, bar, bars, v->clock_mode,
+    const unsigned state[] = {frame_radar[RADAR_TEMPO], scene_pulse, synth_mode ? 64U + frame_synth.program + ((unsigned)(octave + 2) << 8) : drum, v->tempo, v->playing, recording, bar, bars, v->clock_mode,
                               v->playing ? v->play_step / 16U : 4U, frame_dirty};
     uint32_t sig = signature(5381, state, sizeof state);
     if (sig == cache->status) return;
@@ -396,10 +395,10 @@ static void status_draw(void)
         paint_fill(128 + b * 8, 116, 6, 7, b == bar ? TEXT : b < bars ? INK_LANE : INK);
         if (v->playing && b == v->play_step / 16U) paint_fill(128 + b * 8, 124, 6, 2, lane_color[0]);
     }
-    char tempo[12] = "EXT";
-    if (!v->clock_mode || v->tempo) decimal(tempo, v->tempo, 3);
-    text(164, 113, tempo, 2, v->clock_mode ? AMBER : TEXT, BACK);
-    text(202, 120, v->clock_mode ? "MIDI" : "BPM", 1, DIM, BACK);
+    /* Tempo is a bar, not a figure: longer is faster, and it flashes on the beat. */
+    paint_fill(164, 117, 62, 6, INK);
+    paint_fill(164, 117, frame_radar[RADAR_TEMPO] * 62U / 100U, 6,
+               v->clock_mode ? AMBER : scene_pulse ? lane_color[0] : TEXT);
     if (recording) paint_fill(230, 116, 7, 7, RED);
     else if (frame_dirty) paint_fill(232, 118, 3, 3, AMBER);
 }
@@ -417,8 +416,8 @@ static void grid_draw(void)
         if (sig != cache->lane[lane]) {
             cache->lane[lane] = sig;
             uint16_t bg = selected ? lane_color[lane] : BACK;
-            paint_fill(1, y, 16, 7, bg);
-            text(3, y, label, 1, selected ? BACK : lane_color[lane], bg);
+            paint_fill(0, y, 14, 7, bg);
+            text(1, y, label, 1, selected ? BACK : lane_color[lane], bg);
         }
         unsigned steps = (unsigned)(frame_lanes[lane] >> (bar * 16U)) & 0xffffU;
         for (unsigned i = 0; i < 16; ++i) {
@@ -426,7 +425,7 @@ static void grid_draw(void)
             uint8_t cell = (uint8_t)(on | ((i == head) << 1) | (selected << 2));
             if (cell == cache->cell[lane][i]) continue;
             cache->cell[lane][i] = cell;
-            paint_fill(21 + i * 13 + (i / 4) * 3, y, 11, 6,
+            paint_fill(16 + i * 8 + (i / 4) * 2, y, 7, 6,
                        on ? (i == head ? TEXT : lane_color[lane])
                           : i == head ? HEAD : selected ? INK_LANE : i % 4 ? INK : INK_BEAT);
         }
@@ -435,81 +434,135 @@ static void grid_draw(void)
 #ifdef FM1_HOST_TEST
 static char web_knobs[4][2][16];
 #endif
-static void knob(unsigned col, const char *label, const char *value)
+/* One bar per knob: its name and how far it is turned, 0 to 100. */
+static void knob(unsigned col, const char *label, unsigned amount)
 {
+    if (amount > 100) amount = 100;
 #ifdef FM1_HOST_TEST
     memset(web_knobs[col], 0, sizeof web_knobs[col]);
     strncpy(web_knobs[col][0], label, 15);
-    strncpy(web_knobs[col][1], value, 15);
+    decimal(web_knobs[col][1], (int)amount, 1);
 #endif
-    if (paint_rendering && (paint_top >= 227 || paint_top + PAINT_ROWS <= 195)) return;
-    uint16_t color = lane_color[knob_bank == 1 ? 4 + col : col];
-    uint32_t sig =
-        signature(signature(color, label, (unsigned)strlen(label)), value, (unsigned)strlen(value));
+    unsigned y = 194 + col * 9;
+    if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 8 <= paint_top)) return;
+    uint32_t sig = signature(amount + 1U, label, (unsigned)strlen(label));
     if (cache->foot[col] == sig)
         return;
     cache->foot[col] = sig;
-    unsigned x = 6 + 59 * col;
-    paint_fill(x, 195, 54, 32, BACK);
-    paint_fill(x, 195, 54, 2, color);
-    text(x, 200, label, 1, TEXT, BACK);
-    text(x, 212, value, strlen(value) <= 4 ? 2 : 1, color, BACK);
+    paint_fill(0, y, 152, 8, BACK);
+    text(2, y, label, 1, lane_color[col], BACK);
+    paint_fill(54, y + 1, 96, 5, INK);
+    paint_fill(54, y + 1, amount * 96U / 100U, 5, lane_color[col]);
 }
 static void knobs_draw(void)
 {
     static const char *const labels[2][4] = {{"LEVEL", "TUNE", "DECAY", "TEMPO"},
                                              {"REVERB", "DELAY", "FEEDBACK", "SWING"}};
+    static const uint8_t axes[2][4] = {{RADAR_LEVEL, RADAR_TUNE, RADAR_DECAY, RADAR_TEMPO},
+                                       {RADAR_REVERB, RADAR_DELAY, RADAR_FEEDBACK, RADAR_SWING}};
+    memset(frame_axis, 0xff, sizeof frame_axis);
     if (held_step < GROOVE_STEPS) {
-        static const char *const names[4] = {"VELOCITY", "CHANCE", "LOCK", "VALUE"};
-        static const char *const targets[5] = {"NONE", "LEVEL", "TUNE", "DECAY", "OTHER"};
+        static const char *const targets[5] = {"LOCK OFF", "LEVEL", "TUNE", "DECAY", "OTHER"};
         unsigned lock = frame_held[2], target = !lock ? 0 : (lock - 1U) / SAMPLE_DRUM_PARAMS == drum &&
             (lock - 1U) % SAMPLE_DRUM_PARAMS < 3 ? (lock - 1U) % SAMPLE_DRUM_PARAMS + 1U : 4;
-        for (unsigned col = 0; col < 4; ++col) {
-            char value[12];
-            decimal(value, col == 1 ? (frame_held[1] ? frame_held[1] * 100 / 8 : 100) : frame_held[col], 1);
-            if (col == 1) strcat(value, "%");
-            if (col == 2) strcpy(value, targets[target]);
-            if (col == 3 && !lock) strcpy(value, "--");
-            knob(col, names[col], value);
-        }
-        return;
-    }
-    if (synth_mode && knob_bank != 2) {
-        static const char *const names[4] = {"VOICE", "VOLUME", "REVERB", "DELAY"};
-        const int numbers[4] = {frame_synth.program + 1, frame_synth.volume, frame_synth_sends[0], frame_synth_sends[1]};
-        for (unsigned col = 0; col < 4; ++col) {
-            char value[12];
-            decimal(value, numbers[col], 1);
-            knob(col, names[col], value);
-        }
+        knob(0, "VELOCITY", frame_held[0] * 100U / 127U);
+        knob(1, "CHANCE", frame_held[1] ? frame_held[1] * 100U / 8U : 100U);
+        knob(2, targets[target], target ? 100U : 0U);
+        knob(3, "VALUE", lock ? frame_held[3] * 100U / 127U : 0U);
         return;
     }
     if (knob_bank == 2) {
-        char amount[12], drift[12];
-        decimal(amount, (int)smoke, 1);
-        decimal(drift, (int)smoke_drift, 1);
-        knob(0, "SMOKE", amount);
-        knob(1, "DRIFT", drift);
-        knob(2, "MAX", "TURN");
-        knob(3, "CLEAR", "TURN");
+        frame_axis[0] = RADAR_SMOKE;
+        knob(0, "SMOKE", smoke);
+        knob(1, "DRIFT", smoke_drift * 100U / 6U);
+        knob(2, "MAX", smoke == 100 ? 100U : 0U);
+        knob(3, "CLEAR", smoke ? 0U : 100U);
         return;
     }
-    int values[4];
-    if (knob_bank) {
-        values[0] = frame_sends[0]; values[1] = frame_sends[1];
-        values[2] = frame_effects[2]; values[3] = (int)frame_swing;
-    } else {
-        values[0] = frame_pots[SAMPLE_DRUM_LEVEL];
-        values[1] = (int)frame_pots[SAMPLE_DRUM_TUNE] - 24;
-        values[2] = frame_pots[SAMPLE_DRUM_LENGTH];
-        values[3] = frame_view.tempo;
+    if (synth_mode) {
+        frame_axis[1] = RADAR_SYNTH; frame_axis[2] = RADAR_REVERB; frame_axis[3] = RADAR_DELAY;
+        knob(0, "VOICE", frame_synth.program * 100U / 127U);
+        knob(1, "VOLUME", frame_radar[RADAR_SYNTH]);
+        knob(2, "REVERB", frame_radar[RADAR_REVERB]);
+        knob(3, "DELAY", frame_radar[RADAR_DELAY]);
+        return;
     }
     for (unsigned col = 0; col < 4; ++col) {
-        char value[12];
-        decimal(value, values[col], 1);
-        if (!knob_bank && col == 1 && values[1] > 0) { value[0] = '+'; decimal(value + 1, values[1], 1); }
-        if (!knob_bank && col == 3 && frame_view.clock_mode) strcpy(value, "EXT");
-        knob(col, labels[knob_bank][col], value);
+        frame_axis[col] = axes[knob_bank][col];
+        knob(col, labels[knob_bank][col], frame_radar[frame_axis[col]]);
+    }
+}
+/* Direct pixel work for the radar; band painter only. */
+static void plot(int x, int y, uint16_t color)
+{
+    if (x < (int)paint_x || x >= (int)paint_end || y < (int)paint_top || y >= (int)(paint_top + PAINT_ROWS)) return;
+    paint_pixels[((unsigned)y - paint_top) * (paint_end - paint_x) + (unsigned)x - paint_x] = color;
+}
+static void plot_line(int x, int y, int end_x, int end_y, uint16_t color)
+{
+    int dx = end_x > x ? end_x - x : x - end_x, dy = end_y > y ? y - end_y : end_y - y;
+    int sx = x < end_x ? 1 : -1, sy = y < end_y ? 1 : -1, error = dx + dy;
+    for (;;) {
+        plot(x, y, color);
+        if (x == end_x && y == end_y) break;
+        int twice = 2 * error;
+        if (twice >= dy) { error += dy; x += sx; }
+        if (twice <= dx) { error += dx; y += sy; }
+    }
+}
+/* Ten controls as one shape, like a player's attributes: the further a corner
+ * reaches, the higher that control. The four spokes on K1-K4 take the knob colours. */
+static void radar_draw(void)
+{
+    static const int8_t across[RADAR_AXES] = {0, 75, 121, 121, 75, 0, -75, -121, -121, -75};
+    static const int8_t down[RADAR_AXES] = {-127, -103, -39, 39, 103, 127, 103, 39, -39, -103};
+    enum { LEFT = RADAR_X - RADAR_R - 3, TOP = RADAR_Y - RADAR_R - 3, SIZE = 2 * RADAR_R + 7 };
+    if (!paint_rendering) {
+        uint32_t sig = signature(signature(17, frame_radar, sizeof frame_radar), frame_axis, sizeof frame_axis);
+        if (sig != cache->radar) paint_mark(LEFT, TOP, SIZE, SIZE);
+        cache->radar = sig;
+        return;
+    }
+    if (paint_top >= TOP + SIZE || paint_top + PAINT_ROWS <= TOP) return;
+    paint_fill(LEFT, TOP, SIZE, SIZE, BACK);
+    int px[RADAR_AXES], py[RADAR_AXES], ox[RADAR_AXES], oy[RADAR_AXES];
+    for (unsigned i = 0; i < RADAR_AXES; ++i) {
+        int reach = RADAR_R * (14 + (int)frame_radar[i] * 86 / 100);
+        px[i] = RADAR_X + across[i] * reach / 12700; py[i] = RADAR_Y + down[i] * reach / 12700;
+        ox[i] = RADAR_X + across[i] * RADAR_R / 127; oy[i] = RADAR_Y + down[i] * RADAR_R / 127;
+    }
+    /* Fill the shape, every other pixel, one row at a time. */
+    for (int row = (int)paint_top; row < (int)(paint_top + PAINT_ROWS); ++row) {
+        int cross[RADAR_AXES], count = 0;
+        for (unsigned i = 0; i < RADAR_AXES; ++i) {
+            unsigned j = (i + 1U) % RADAR_AXES;
+            if ((py[i] <= row) != (py[j] <= row))
+                cross[count++] = px[i] + (row - py[i]) * (px[j] - px[i]) / (py[j] - py[i]);
+        }
+        for (int i = 1; i < count; ++i)
+            for (int k = i; k > 0 && cross[k] < cross[k - 1]; --k) { int t = cross[k]; cross[k] = cross[k - 1]; cross[k - 1] = t; }
+        for (int i = 0; i + 1 < count; i += 2)
+            for (int x = cross[i]; x <= cross[i + 1]; ++x)
+                if ((x ^ row) & 1) plot(x, row, BEACH_RGB(150, 16, 30));
+    }
+    for (unsigned i = 0; i < RADAR_AXES; ++i) {
+        unsigned j = (i + 1U) % RADAR_AXES;
+        uint16_t spoke = INK_BEAT;
+        for (unsigned col = 0; col < 4; ++col)
+            if (frame_axis[col] == i) spoke = lane_color[col];
+        plot_line((ox[i] + RADAR_X) / 2, (oy[i] + RADAR_Y) / 2, (ox[j] + RADAR_X) / 2, (oy[j] + RADAR_Y) / 2, INK);
+        plot_line(ox[i], oy[i], ox[j], oy[j], INK_LANE);
+        plot_line(RADAR_X, RADAR_Y, ox[i], oy[i], spoke);
+    }
+    for (unsigned i = 0; i < RADAR_AXES; ++i) {
+        unsigned j = (i + 1U) % RADAR_AXES;
+        plot_line(px[i], py[i], px[j], py[j], TEXT);
+    }
+    for (unsigned i = 0; i < RADAR_AXES; ++i) {
+        uint16_t dot = TEXT;
+        for (unsigned col = 0; col < 4; ++col)
+            if (frame_axis[col] == i) dot = lane_color[col];
+        for (int k = 0; k < 9; ++k) plot(px[i] - 1 + k % 3, py[i] - 1 + k / 3, dot);
     }
 }
 static void hint_draw(void)
@@ -622,6 +675,7 @@ static void draw_page(void)
         status_draw();
         grid_draw();
         knobs_draw();
+        radar_draw();
         hint_draw();
     }
 }
@@ -675,13 +729,24 @@ static void draw(void)
     groove_background_poll();
     scene_picture = groove_background();
     frame_repeat = groove_arp_enabled(KIT) != 0;
+    groove_get_view(SYNTH, 0, &frame_synth);
+    groove_sends_get(SYNTH, frame_synth_sends);
     if (synth_mode) {
         uint8_t patch[156];
-        groove_get_view(SYNTH, 0, &frame_synth);
-        groove_sends_get(SYNTH, frame_synth_sends);
         memcpy(frame_voice, "SYNTH", 6);
         if (!groove_fm_copy(SYNTH, patch, NULL)) { memcpy(frame_voice, patch + 145, 10); frame_voice[10] = 0; }
     }
+    const uint8_t *sends = synth_mode ? frame_synth_sends : frame_sends;
+    frame_radar[RADAR_LEVEL] = (uint8_t)(frame_pots[SAMPLE_DRUM_LEVEL] * 100U / 127U);
+    frame_radar[RADAR_TUNE] = (uint8_t)(frame_pots[SAMPLE_DRUM_TUNE] * 100U / 48U);
+    frame_radar[RADAR_DECAY] = (uint8_t)(frame_pots[SAMPLE_DRUM_LENGTH] * 100U / 127U);
+    frame_radar[RADAR_TEMPO] = (uint8_t)(frame_view.tempo > 30 ? (frame_view.tempo - 30U) * 100U / 270U : 0U);
+    frame_radar[RADAR_SWING] = (uint8_t)(frame_swing * 2U);
+    frame_radar[RADAR_REVERB] = (uint8_t)(sends[0] * 100U / 15U);
+    frame_radar[RADAR_DELAY] = (uint8_t)(sends[1] * 100U / 15U);
+    frame_radar[RADAR_FEEDBACK] = frame_effects[2] > 100 ? 100 : frame_effects[2];
+    frame_radar[RADAR_SMOKE] = (uint8_t)smoke;
+    frame_radar[RADAR_SYNTH] = (uint8_t)(frame_synth.volume * 100U / 127U);
     if (held_step < GROOVE_STEPS) {
         frame_held[0] = (uint8_t)groove_step_setting(KIT, held_step, 0);
         frame_held[1] = (uint8_t)groove_step_setting(KIT, held_step, 2);
@@ -1337,7 +1402,7 @@ const void *groove_screen_web_targets(void)
     memset(web_targets, 0, sizeof web_targets);
     for (unsigned col = 0; col < 4; ++col) {
         struct web_target *t = &web_targets[col];
-        t->x = 6 + 59 * (int)col; t->y = 195; t->w = 54; t->h = 32; t->index = (int)col; t->owner = KIT;
+        t->x = 0; t->y = 194 + 9 * (int)col; t->w = 152; t->h = 8; t->index = (int)col; t->owner = KIT;
         memcpy(t->label, web_knobs[col][0], 15);
         memcpy(t->value, web_knobs[col][1], 15);
     }

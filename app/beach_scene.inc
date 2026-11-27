@@ -2,7 +2,8 @@
 /* Beach 909 backdrop: deep space, 120x56 logical pixels painted at 2x on the
  * LCD. Integer only and stateless, so the same pixels come out on the device
  * and in the browser preview. `phase` drifts the stars; `pulse` swells the
- * star that carries the Terms Of Service mark, the act's logo. */
+ * star that carries the Terms Of Service mark, the act's logo. `picture`, when
+ * set, is 120x56 little-endian RGB565 drawn behind everything else. */
 
 #define BEACH_RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 enum { BEACH_W = 120, BEACH_H = 56, BEACH_HORIZON = 34, BEACH_SUN_X = 78, BEACH_SUN_Y = 20,
@@ -14,7 +15,8 @@ static unsigned beach_hash(unsigned x, unsigned y)
     h = (h ^ (h >> 13)) * 1274126177U;
     return h ^ (h >> 16);
 }
-static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse, uint16_t mark, unsigned glow)
+static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse, uint16_t mark, unsigned glow,
+                                  const uint8_t *picture)
 {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     static const uint16_t space[5] = {
@@ -24,7 +26,7 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
     /* Moon surface along the bottom edge, with a lit rim and craters. */
     int centre = (int)x - 60;
     unsigned ground = 50U + (unsigned)(centre * centre) / 800U;
-    if (y >= ground) {
+    if (!picture && y >= ground) {
         if (y == ground) return BEACH_RGB(206, 190, 230);
         unsigned crater = beach_hash(x / 3U, y / 2U) % 11U;
         return crater == 0 ? BEACH_RGB(34, 26, 60) : crater < 4 ? BEACH_RGB(92, 80, 128) : BEACH_RGB(70, 58, 104);
@@ -67,10 +69,16 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
             return tail < 2 ? BEACH_RGB(255, 255, 255) : BEACH_RGB(150, 190, 255);
     }
     /* Three star layers drift at different speeds. */
-    for (unsigned layer = 0; layer < 3; ++layer) {
+    for (unsigned layer = picture ? 1 : 0; layer < 3; ++layer) {
         unsigned h = beach_hash((x + phase * (layer + 1U) / 4U) % 240U + layer * 977U, y);
         if (h % (layer ? 113U : 71U) == 0 && ((h >> 9) + phase / 3U) % 6U)
             return layer == 2 ? BEACH_RGB(255, 255, 255) : layer ? BEACH_RGB(170, 200, 255) : BEACH_RGB(110, 100, 170);
+    }
+    /* A picture sent by the player is the back layer: the star, the e-cigarette,
+     * the shooting star and the brighter stars above all play over it. */
+    if (picture) {
+        const uint8_t *pixel = picture + (y * BEACH_W + x) * 2U;
+        return (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
     }
     /* Two nebulae: dithered so the dark shows through their edges. */
     int ex = (int)x - 34, ey = (int)y - 14, fx = (int)x - 104, fy = (int)y - 38;
