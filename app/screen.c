@@ -140,7 +140,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "EDIT:DELETE FX:KNOBS ENV:SMOKE LFO:GAME";
+static const char help[] = "EDIT:DELETE FX:KNOBS ENV:VAPE LFO:GAME";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
@@ -152,10 +152,13 @@ static unsigned held_step = GROOVE_STEPS, held_key, held_fresh, held_edited, arp
 static uint32_t arp_since;
 static uint8_t frame_held[4];
 static unsigned view_page = PAGE_SPLASH, last_step;
-static uint32_t splash_at, glitch_until, vape_at;
+static uint32_t splash_at, glitch_until;
 /* Scene effects: a torn, colour-split frame on snare and clap hits, and the
  * vapor cloud blown by ENV. Both are read by the band painter. */
-static unsigned glitch, vape_on, vape_age, vape_fade;
+static unsigned glitch;
+/* The vape: a pen on the moon. `smoke` is how much it gives off, 0 to 100; at
+ * 100 the cloud covers the whole screen. Not saved with the pattern. */
+static unsigned smoke, smoke_drift = 2, smoke_shown;
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
 static uint8_t game_cells[GAME_H][GAME_W];
 static struct { int x, y; unsigned kind, turn; } game_piece;
@@ -273,30 +276,47 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
-    /* Smoke: thin wisps always drift across the horizon; ENV thickens them
-     * and blows a cloud. Every other pixel shows through. */
-    if ((x ^ y) & 1U)
-        for (unsigned k = 0; k < 3; ++k) {
-            int rx = 15 + (int)k * 5 + (int)vape_fade, ry = 2 + (int)(k & 1U) + (int)vape_fade / 5;
-            int dx = (int)((k * 53U + scene_phase * (k + 1U) / 2U) % 170U) - 25 - (int)x, dy = 27 + (int)k * 5 - (int)y;
-            if (dx * dx * ry * ry + dy * dy * rx * rx <= rx * rx * ry * ry) return BEACH_RGB(214, 196, 232);
-        }
-    if (vape_age)
-        for (int k = 0; k < 4; ++k) {
-            int dx = (int)x - (42 + k * 10 + (int)vape_age * 2), dy = (int)y - (43 - k * 6 - (int)vape_age);
-            int r = 5 + k * 2 + (int)vape_age / 3, d = dx * dx + dy * dy;
-            unsigned grain = beach_hash(x + vape_age, y) & 7U;
-            if (((x ^ y) & 1U) && d <= r * r && (unsigned)(d * 16 / (r * r)) + 15U - vape_fade < 11U + grain)
-                return d * 2 < r * r ? BEACH_RGB(246, 236, 250) : BEACH_RGB(206, 178, 226);
-        }
+    /* The pen stands on the moon: light, battery, tank, mouthpiece. The light
+     * and the coil glow while it is giving off smoke. */
+    if (y >= 46 && y <= 48 && x >= 30 && x <= 49) {
+        if (x == 30) return smoke ? BEACH_RGB(90, 255, 240) : BEACH_RGB(40, 90, 100);
+        if (x >= 47) return y == 47 ? BEACH_RGB(60, 52, 80) : BEACH_RGB(30, 24, 48);
+        if (x >= 41) return y == 47 ? (smoke ? BEACH_RGB(255, 170, 90) : BEACH_RGB(150, 120, 110)) : BEACH_RGB(200, 210, 230);
+        return y == 46 ? BEACH_RGB(236, 240, 250) : y == 47 ? BEACH_RGB(170, 180, 205) : BEACH_RGB(104, 110, 140);
+    }
     uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark);
     if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
     else if (torn == 2) color |= 0xf81fU;
     return color;
 }
+/* Smoke over the finished picture, panel included. It billows out of the
+ * mouthpiece, rising faster than it sinks, in 120x120 logical pixels. */
+static unsigned smoke_at(unsigned x, unsigned y)
+{
+    static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    int dx = (int)x - 50, dy = (int)y - 47, reach = (int)(smoke * smoke) / 40;
+    int distance = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy / 2 : dy * 2);
+    if (distance >= reach + 12) return 0;
+    unsigned roll = scene_phase * smoke_drift;
+    unsigned puff = beach_hash((x + roll / 2U) / 6U, (y + roll) / 5U);
+    int density = (reach - distance) / 4 + (int)(puff & 7U) - 3;
+    if (density <= (int)bayer[y & 3U][x & 3U]) return 0;
+    /* Three tones keep the billows visible even when the cloud is solid. */
+    return density < 6 ? 1U : 2U + ((puff >> 3) % 3U == 0);
+}
+static void smoke_draw(void)
+{
+    unsigned stride = paint_end - paint_x;
+    for (unsigned row = paint_top; row < paint_top + PAINT_ROWS; ++row)
+        for (unsigned col = paint_x; col < paint_end; ++col) {
+            unsigned cloud = smoke_at(col >> 1, row >> 1);
+            if (cloud) paint_pixels[(row - paint_top) * stride + col - paint_x] =
+                cloud == 1 ? BEACH_RGB(180, 164, 204) : cloud == 2 ? BEACH_RGB(236, 230, 244) : BEACH_RGB(208, 196, 226);
+        }
+}
 static void scene_draw(void)
 {
-    uint32_t effects = glitch | (vape_age << 8) | (vape_fade << 16);
+    uint32_t effects = glitch;
     if (!paint_rendering) {
         if (cache->effects != effects) cache->scene = ~0U;
         cache->effects = effects;
@@ -413,7 +433,7 @@ static void knob(unsigned col, const char *label, const char *value)
     strncpy(web_knobs[col][1], value, 15);
 #endif
     if (paint_rendering && (paint_top >= 227 || paint_top + PAINT_ROWS <= 195)) return;
-    uint16_t color = lane_color[knob_bank ? 4 + col : col];
+    uint16_t color = lane_color[knob_bank == 1 ? 4 + col : col];
     uint32_t sig =
         signature(signature(color, label, (unsigned)strlen(label)), value, (unsigned)strlen(value));
     if (cache->foot[col] == sig)
@@ -442,6 +462,16 @@ static void knobs_draw(void)
             if (col == 3 && !lock) strcpy(value, "--");
             knob(col, names[col], value);
         }
+        return;
+    }
+    if (knob_bank == 2) {
+        char amount[12], drift[12];
+        decimal(amount, (int)smoke, 1);
+        decimal(drift, (int)smoke_drift, 1);
+        knob(0, "SMOKE", amount);
+        knob(1, "DRIFT", drift);
+        knob(2, "MAX", "TURN");
+        knob(3, "CLEAR", "TURN");
         return;
     }
     int values[4];
@@ -591,8 +621,8 @@ static void leds(void)
     for (unsigned key = 0; key < 27; ++key)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
-    bits = ((bar > 0) << OCT_DOWN) | ((bar + 1U < bars) << OCT_UP) | (knob_bank << FX) | (1U << HOME)
-        | (frame_dirty << SAVE) | (vape_on << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP) | (follow << SEQ)
+    bits = ((bar > 0) << OCT_DOWN) | ((bar + 1U < bars) << OCT_UP) | ((knob_bank == 1) << FX) | (1U << HOME)
+        | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP) | (follow << SEQ)
         | ((v->playing != 0) << PLAY) | ((writing || (armed && blink)) << REC);
     changed = bits ^ button_led_cache;
     for (unsigned key = 0; key < 14; ++key)
@@ -646,18 +676,14 @@ static void draw(void)
     }
     if (view_page == PAGE_SPLASH) { glitch = 1U + (frame_time / 120U) % 250U; glitch_until = frame_time + 200U; }
     if (glitch && (int32_t)(frame_time - glitch_until) >= 0) glitch = 0;
-    if ((vape_on || vape_age) && frame_time - vape_at >= 110U) {
-        vape_at = frame_time;
-        if (vape_on) { vape_fade = 15; if (vape_age < 14) ++vape_age; }
-        else {
-            ++vape_age;
-            vape_fade = vape_fade > 2 ? vape_fade - 2U : 0;
-            if (!vape_fade) vape_age = 0;
-        }
-    }
     paint_priority = 0;
     cache = &saved_cache;
     draw_page();
+    /* The cloud moves with the stars: repaint what it covers on every drift,
+     * and once more when it clears. */
+    unsigned drifting = smoke | (scene_phase << 8);
+    if ((smoke || smoke_shown) && drifting != smoke_shown) paint_mark(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT);
+    smoke_shown = smoke ? drifting : 0;
     leds();
 }
 static void paint_flush(void)
@@ -687,6 +713,7 @@ static void paint_flush(void)
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
         draw_page();
+        if (smoke) smoke_draw();
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -887,14 +914,6 @@ static void game_control(const struct fm1_controls *controls, uint32_t pressed, 
     if (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
     else game_land();
 }
-/* ENV thickens the smoke and blows a cloud while it is held. Animation only. */
-static void vape_control(const struct fm1_controls *controls, uint32_t pressed)
-{
-    if ((pressed & BUTTON(ENV)) && !vape_on) {
-        vape_on = 1;
-        if (!vape_age) vape_age = 1;
-    } else if (vape_on && !(controls->buttons & BUTTON(ENV))) vape_on = 0;
-}
 /* Per-step edits while a step is held: velocity, chance of playing, and one
  * parameter lock (level, tune or decay of the selected drum, on this step only).
  * A step keeps one velocity, chance and lock for all the drums on it. */
@@ -943,7 +962,8 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         if (!pressed && !key_down && !encoder_active(controls->encoders) && now - splash_at < 2600U) return;
         view_page = PAGE_KIT;
     }
-    vape_control(controls, pressed);
+    /* ENV opens the vape knobs: SMOKE, DRIFT, MAX and CLEAR. */
+    if (pressed & BUTTON(ENV)) knob_bank = knob_bank == 2 ? 0 : 2;
     if (pressed & BUTTON(LFO)) {
         if (!release_keys()) return;
         view_page = view_page == PAGE_GAME ? PAGE_KIT : PAGE_GAME;
@@ -992,7 +1012,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
     if (bar >= bars && !(follow && view.playing)) bar = bars - 1U;
     if (bar > 3) bar = 3;
 
-    if (pressed & BUTTON(FX)) knob_bank ^= 1U;
+    if (pressed & BUTTON(FX)) knob_bank = knob_bank == 1 ? 0 : 1;
     /* ARP is note repeat: each tap steps through four rates, then off. A held
      * drum key then retriggers in time. Holding ARP swaps the clock source. */
     if (pressed & BUTTON(ARP)) { arp_since = now; arp_fired = 0; }
@@ -1036,6 +1056,12 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         int16_t turn = controls->encoders[2 + col];
         if (!turn) continue;
         if (held_step < GROOVE_STEPS) { step_knob(col, turn, now); continue; }
+        if (knob_bank == 2) {
+            if (col == 0) smoke = (unsigned)clamp((int)smoke + turn * 2, 0, 100);
+            else if (col == 1) smoke_drift = (unsigned)clamp((int)smoke_drift + turn, 1, 6);
+            else smoke = col == 2 ? 100 : 0;
+            continue;
+        }
         if (knob_bank) {
             if (col < 2) groove_sends_edit(KIT, col, turn);
             else if (col == 2) groove_effects_edit(2, encoder_delta(2 + col, turn));
@@ -1102,7 +1128,8 @@ void groove_screen_init(void)
     held_step = GROOVE_STEPS;
     kit_retry = scene_at = splash_at = fm1_millis();
     view_page = PAGE_SPLASH;
-    last_step = glitch = vape_on = vape_age = vape_fade = 0;
+    last_step = glitch = smoke = smoke_shown = 0;
+    smoke_drift = 2;
     scene_phase = scene_pulse = 0;
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
     led_cache = button_led_cache = 0;
