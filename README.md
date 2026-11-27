@@ -1,6 +1,6 @@
 # Bitch909 for M-VAVE FM-1
 
-A Terms Of Service release on Mizu Records.
+A Terms Of Service release.
 
 A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1 into a simple instrument to play live: a DX7 synth with a quick preset list, a 909-style drum kit, a loop recorder, reverb and delay turned all the way up, a coin pusher that plays notes by chance, under a pixel-art view of deep space. The red star is the Terms Of Service logo, and its pulse lights up in the colour of whichever drum is sounding.
 

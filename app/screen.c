@@ -682,7 +682,7 @@ static void hint_draw(void)
     text(4, 231, line, 1, notice ? AMBER : DIM, BACK);
 }
 /* Splash: the Terms Of Service mark (a disc with a square pulse, redrawn from
- * the act's own logo) over the Mizu Records name, both jittered. */
+ * the act's own logo) over the firmware's name, both jittered. */
 static void splash_draw(void)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= SCENE_ROWS) return;
@@ -705,10 +705,7 @@ static void splash_draw(void)
     paint_fill(cx + 7, DISC_Y - 8, 5, 17, BACK);
     paint_fill(cx + 7, DISC_Y + 4, 14, 5, BACK);
     text(72, 178, "TERMS OF SERVICE", 1, TEXT, BACK);
-    text(50 - shift * 2, 192, "MIZU RECORDS", 2, tint[(jitter + 1U) & 3U], BACK);
-    if (cache->hint == 1) return;
-    cache->hint = 1;
-    text(72, 216, kit_name, 2, lane_color[0], BACK);
+    text(74 - shift * 2, 194, kit_name, 2, tint[(jitter + 1U) & 3U], BACK);
 }
 static const struct { uint8_t size, count; int8_t cell[4][2]; } game_shapes[6] = {
     {2, 2, {{0, 0}, {1, 0}}},                 {3, 3, {{0, 1}, {1, 1}, {2, 1}}},
