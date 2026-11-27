@@ -126,7 +126,7 @@ jobs:
           path: firmware
       - name: Assemble site
         run: |
-          cp repo/site/index.html repo/LICENSE.md repo/THIRD_PARTY.md site/
+          cp repo/site/index.html repo/site/background.html repo/site/background.js repo/LICENSE.md repo/THIRD_PARTY.md site/
           cp firmware/generated/FM1_OFFICIAL_OPEN.fwsc site/
           touch site/.nojekyll
           (cd site && sha256sum FM1_OFFICIAL_OPEN.fwsc >> SHA256SUMS.txt)

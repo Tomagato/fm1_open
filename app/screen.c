@@ -178,6 +178,7 @@ static unsigned game_lines, game_over;
 static uint32_t game_random, game_fall_at;
 static unsigned scene_phase, scene_pulse;
 static uint16_t scene_mark; /* pulse colour of the Terms Of Service sun */
+static const uint8_t *scene_picture;
 static const char *notice;
 static uint32_t notice_until;
 static char master_notice[24];
@@ -288,7 +289,12 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
-    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark, smoke != 0);
+    /* A picture sent from the browser replaces the built-in scene. */
+    uint16_t color;
+    if (scene_picture) {
+        const uint8_t *pixel = scene_picture + (y * GROOVE_BACKGROUND_W + x) * 2U;
+        color = (uint16_t)(pixel[0] | (unsigned)pixel[1] << 8);
+    } else color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark, smoke != 0);
     if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
     else if (torn == 2) color |= 0xf81fU;
     return color;
@@ -320,7 +326,7 @@ static void smoke_draw(void)
 }
 static void scene_draw(void)
 {
-    uint32_t effects = glitch;
+    uint32_t effects = glitch | ((uint32_t)(scene_picture != NULL) << 16);
     if (!paint_rendering) {
         if (cache->effects != effects) cache->scene = ~0U;
         cache->effects = effects;
@@ -329,9 +335,9 @@ static void scene_draw(void)
             paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS);
         } else {
             if (cache->sea != scene_phase) {
-                paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
+                if (!scene_picture) paint_mark(0, 0, FM1_SCREEN_WIDTH, SCENE_ROWS); /* the whole sky drifts */
             }
-            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) paint_mark(116, 0, 80, SEA_ROW + 12);
+            if (cache->sun != (scene_pulse | ((uint32_t)scene_mark << 1))) if (!scene_picture) paint_mark(116, 0, 80, SEA_ROW + 12);
         }
         cache->sea = scene_phase;
         cache->sun = scene_pulse | ((uint32_t)scene_mark << 1);
@@ -666,6 +672,8 @@ static void draw(void)
     groove_effects_get(frame_effects);
     frame_swing = groove_sequence_setting(0);
     frame_samples = groove_samples_status();
+    groove_background_poll();
+    scene_picture = groove_background();
     frame_repeat = groove_arp_enabled(KIT) != 0;
     if (synth_mode) {
         uint8_t patch[156];

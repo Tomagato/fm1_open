@@ -31,6 +31,10 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 
 The kit also answers MIDI notes on channel 10.
 
+## Background picture
+
+<https://tomagato.github.io/fm1_open/background.html> puts your own picture behind the screen in place of the space scene. The page shrinks a PNG or JPEG to 120 x 56 pixels in the browser and sends it to the FM-1 over USB MIDI (transfer commands 30 to 33 in `app/transfer.c`); nothing is uploaded. The picture is kept in the last four sectors of the sample area (`app/background.c`) and survives a restart. Remove it from the same page.
+
 ## Install
 
 1. Back up projects and samples with the workbench you already use.

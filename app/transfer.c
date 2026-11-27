@@ -96,6 +96,14 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 {
     int r = GROOVE_PROJECT_INVALID;
     *count = 0;
+    /* Beach 909 backdrop: 30 state, 31 write chunk, 32 finish with CRC, 33 clear. */
+    if (cmd == 30 && !n) {
+        out[0] = groove_background() != NULL; out[1] = GROOVE_BACKGROUND_W; out[2] = GROOVE_BACKGROUND_H;
+        *count = 3; return 0;
+    }
+    if (cmd == 31 && n > 2 && n <= 66) return groove_background_write(get16(data), data + 2, n - 2);
+    if (cmd == 32 && n == 4) return groove_background_finish(get32(data));
+    if (cmd == 33 && !n) return groove_background_clear();
     /* Additive capability reply; command 21 retains its old exact layout. */
     if (cmd == 22 && !n) {
         out[0]=1; out[1]=128; out[2]=4; out[3]=(uint8_t)groove_fm_library_available();
