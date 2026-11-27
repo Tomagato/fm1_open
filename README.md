@@ -19,7 +19,8 @@ The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loa
 | EDIT + white key | Delete that step (every drum on it) |
 | EDIT + black key | Delete that drum from the whole pattern |
 | EDIT (hold 2 s) | Delete the whole pattern |
-| ENV | Vape knobs for the pen on the moon: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Press ENV again to get the drum knobs back. Animation only |
+| HOME | Synth mode: all 27 keys play a DX7 on track 1 (MIDI channel 1). OCT shifts the octave; K1 to K4 are VOICE, VOLUME, REVERB and DELAY. Press HOME again for the drums. The synth is played live; it is not recorded into the pattern |
+| ENV | Vape knobs for the e-cigarette: K1 SMOKE (0 to 100; at 100 the cloud fills the whole screen), K2 DRIFT speed, K3 MAX, K4 CLEAR. Smoke is also the effects macro: it pushes the reverb and delay sends of the drums and the synth, and the delay feedback, from your own settings up to full |
 | LFO | Tide Blocks, a falling-block game that runs while the pattern plays (OCT moves, SEQ turns, REC drops) |
 | Hold a white key + K1 to K4 | Edit that step only: VELOCITY, CHANCE of playing, parameter LOCK (level, tune or decay of the selected drum) and its VALUE. A step keeps one velocity, chance and lock for all the drums on it; a pattern holds 16 locks |
 | ARP (tap) | Note repeat: four rates, then off. A held drum key retriggers in time |

@@ -6,7 +6,7 @@
 
 #define BEACH_RGB(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 enum { BEACH_W = 120, BEACH_H = 56, BEACH_HORIZON = 34, BEACH_SUN_X = 78, BEACH_SUN_Y = 20,
-       BEACH_PLANET_X = 24, BEACH_PLANET_Y = 36 };
+       BEACH_VAPE_X = 6, BEACH_VAPE_Y = 41, BEACH_VAPE_TIP_X = 44, BEACH_VAPE_TIP_Y = 32 };
 
 static unsigned beach_hash(unsigned x, unsigned y)
 {
@@ -14,7 +14,7 @@ static unsigned beach_hash(unsigned x, unsigned y)
     h = (h ^ (h >> 13)) * 1274126177U;
     return h ^ (h >> 16);
 }
-static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse, uint16_t mark)
+static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsigned pulse, uint16_t mark, unsigned glow)
 {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
     static const uint16_t space[5] = {
@@ -29,15 +29,24 @@ static uint16_t beach_scene_pixel(unsigned x, unsigned y, unsigned phase, unsign
         unsigned crater = beach_hash(x / 3U, y / 2U) % 11U;
         return crater == 0 ? BEACH_RGB(34, 26, 60) : crater < 4 ? BEACH_RGB(92, 80, 128) : BEACH_RGB(70, 58, 104);
     }
-    /* Ringed planet. The ring passes behind the upper half and in front of the lower. */
-    int px = (int)x - BEACH_PLANET_X, py = (int)y - BEACH_PLANET_Y;
-    unsigned in_planet = px * px + py * py <= 11 * 11;
-    unsigned in_ring = px * px * 16 + py * py * 361 <= 361 * 16 && px * px * 9 + py * py * 196 > 196 * 9;
-    if (in_ring && (!in_planet || py > 0)) return (px + 20) % 5 ? BEACH_RGB(226, 196, 150) : BEACH_RGB(150, 120, 110);
-    if (in_planet) {
-        if (px + py > 8) return BEACH_RGB(40, 18, 60); /* night side */
-        unsigned band = (unsigned)(py + 11 + (px > 2 ? 1 : 0)) % 6U;
-        return band < 2 ? BEACH_RGB(250, 150, 90) : band < 4 ? BEACH_RGB(214, 90, 110) : BEACH_RGB(150, 70, 150);
+    /* An e-cigarette floats where a planet would be, tilted up to the right:
+     * light, battery with its button, tank and coil, mouthpiece. `glow` lights
+     * the tip and the coil while it is giving off smoke. */
+    if (x >= BEACH_VAPE_X && x <= BEACH_VAPE_X + 36) {
+        int along = (int)x - BEACH_VAPE_X, across = (int)y - (BEACH_VAPE_Y - along / 4);
+        if (along >= 33 ? across >= -2 && across <= 1 : across >= -3 && across <= 2) {
+            if (along < 2) return glow ? BEACH_RGB(90, 255, 240) : BEACH_RGB(40, 90, 100);
+            if (along >= 33) return across == -2 ? BEACH_RGB(70, 62, 96) : BEACH_RGB(30, 24, 48);
+            if (along == 19 || along == 20 || along == 31 || along == 32) return BEACH_RGB(40, 34, 60);
+            if (along > 20) {
+                if (across == -3) return BEACH_RGB(214, 240, 246);
+                if (across == 0 && along >= 24 && along <= 28) return glow ? BEACH_RGB(255, 150, 60) : BEACH_RGB(120, 96, 100);
+                return across > 0 ? BEACH_RGB(240, 170, 70) : BEACH_RGB(110, 170, 190);
+            }
+            if (along >= 8 && along <= 9 && across >= -1 && across <= 0) return BEACH_RGB(232, 36, 48);
+            return across == -3 ? BEACH_RGB(244, 246, 252) : across < 0 ? BEACH_RGB(190, 198, 216)
+                 : across < 2 ? BEACH_RGB(136, 144, 170) : BEACH_RGB(84, 90, 120);
+        }
     }
     /* The star with the Terms Of Service mark: a disc with a square pulse.
      * `mark` is the pulse colour, set by whichever drum is sounding. */

@@ -129,7 +129,7 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
 #include "beach_scene.inc"
 enum { OCT_DOWN, OCT_UP, FX, SCL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
 #define BUTTON(b) (1U << (b))
-enum { KIT = 7, KIT_SLOT = GROOVE_PROJECT_SLOTS - 1, SCENE_ROWS = BEACH_H * 2, SEA_ROW = BEACH_HORIZON * 2,
+enum { SYNTH = 0, KIT = 7, KIT_SLOT = GROOVE_PROJECT_SLOTS - 1, SCENE_ROWS = BEACH_H * 2, SEA_ROW = BEACH_HORIZON * 2,
        RED = 0xf9a6, INK = 0x2108, INK_BEAT = 0x39cf, INK_LANE = 0x4a35, HEAD = 0x7bf7 };
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t pad_keys[8] = {1, 3, 5, 8, 10, 13, 15, 17};
@@ -140,7 +140,7 @@ static const uint16_t lane_color[8] = {
     BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
 static const char kit_name[] = "BEACH 909";
-static const char help[] = "EDIT:DELETE FX:KNOBS ENV:VAPE LFO:GAME";
+static const char help[] = "HOME:SYNTH ENV:VAPE EDIT:DEL LFO:GAME";
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, GAME_W = 8, GAME_H = 14 };
 
 static unsigned track = KIT, cursor, selected_note, drum, writing;
@@ -159,6 +159,18 @@ static unsigned glitch;
 /* The vape: a pen on the moon. `smoke` is how much it gives off, 0 to 100; at
  * 100 the cloud covers the whole screen. Not saved with the pattern. */
 static unsigned smoke, smoke_drift = 2, smoke_shown;
+/* Smoke is also the effects macro: it pushes both reverb and delay sends and
+ * the delay feedback from where the player set them up to full. */
+enum { FX_KIT_REVERB, FX_KIT_DELAY, FX_SYNTH_REVERB, FX_SYNTH_DELAY, FX_FEEDBACK, FX_COUNT, FX_FEEDBACK_TOP = 85 };
+static uint8_t fx_base[FX_COUNT];
+static unsigned fx_applied;
+/* HOME hands the keys to the synth on track 1. */
+static unsigned synth_mode, synth_retry;
+static int octave;
+static uint8_t key_channel[27];
+static struct groove_view frame_synth;
+static uint8_t frame_synth_sends[2];
+static char frame_voice[11];
 /* Tide Blocks: a small falling-block game that runs while the pattern plays. */
 static uint8_t game_cells[GAME_H][GAME_W];
 static struct { int x, y; unsigned kind, turn; } game_piece;
@@ -276,15 +288,7 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
             torn = 1U + ((h >> 4) & 1U);
         }
     }
-    /* The pen stands on the moon: light, battery, tank, mouthpiece. The light
-     * and the coil glow while it is giving off smoke. */
-    if (y >= 46 && y <= 48 && x >= 30 && x <= 49) {
-        if (x == 30) return smoke ? BEACH_RGB(90, 255, 240) : BEACH_RGB(40, 90, 100);
-        if (x >= 47) return y == 47 ? BEACH_RGB(60, 52, 80) : BEACH_RGB(30, 24, 48);
-        if (x >= 41) return y == 47 ? (smoke ? BEACH_RGB(255, 170, 90) : BEACH_RGB(150, 120, 110)) : BEACH_RGB(200, 210, 230);
-        return y == 46 ? BEACH_RGB(236, 240, 250) : y == 47 ? BEACH_RGB(170, 180, 205) : BEACH_RGB(104, 110, 140);
-    }
-    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark);
+    uint16_t color = beach_scene_pixel(x, y, scene_phase, scene_pulse, scene_mark, smoke != 0);
     if (torn == 1) color = (uint16_t)((color & 0x07e0U) | (color >> 11) | (color << 11)); /* swap red and blue */
     else if (torn == 2) color |= 0xf81fU;
     return color;
@@ -294,7 +298,7 @@ static uint16_t scene_pixel(unsigned x, unsigned y)
 static unsigned smoke_at(unsigned x, unsigned y)
 {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
-    int dx = (int)x - 50, dy = (int)y - 47, reach = (int)(smoke * smoke) / 40;
+    int dx = (int)x - BEACH_VAPE_TIP_X, dy = (int)y - BEACH_VAPE_TIP_Y, reach = (int)(smoke * smoke) / 34;
     int distance = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy / 2 : dy * 2);
     if (distance >= reach + 12) return 0;
     unsigned roll = scene_phase * smoke_drift;
@@ -366,7 +370,7 @@ static void status_draw(void)
     const struct groove_view *v = &frame_view;
     unsigned bars = v->sequence_length / 16U, blink = (frame_time / 250U) & 1U;
     unsigned recording = writing || (armed && blink);
-    const unsigned state[] = {drum, v->tempo, v->playing, recording, bar, bars, v->clock_mode,
+    const unsigned state[] = {synth_mode ? 64U + frame_synth.program + ((unsigned)(octave + 2) << 8) : drum, v->tempo, v->playing, recording, bar, bars, v->clock_mode,
                               v->playing ? v->play_step / 16U : 4U, frame_dirty};
     uint32_t sig = signature(5381, state, sizeof state);
     if (sig == cache->status) return;
@@ -380,8 +384,8 @@ static void status_draw(void)
     paint_fill(9, 117, 2, 5, BACK);
     paint_fill(10, 120, 3, 2, BACK);
     char name[10] = {0};
-    strncpy(name, drum_title(drum), 9);
-    text(16, 113, name, 2, lane_color[pad_lane[drum]], BACK);
+    strncpy(name, synth_mode ? frame_voice : drum_title(drum), 9);
+    text(16, 113, name, 2, synth_mode ? lane_color[2] : lane_color[pad_lane[drum]], BACK);
     for (unsigned b = 0; b < 4; ++b) {
         paint_fill(128 + b * 8, 116, 6, 7, b == bar ? TEXT : b < bars ? INK_LANE : INK);
         if (v->playing && b == v->play_step / 16U) paint_fill(128 + b * 8, 124, 6, 2, lane_color[0]);
@@ -460,6 +464,16 @@ static void knobs_draw(void)
             if (col == 1) strcat(value, "%");
             if (col == 2) strcpy(value, targets[target]);
             if (col == 3 && !lock) strcpy(value, "--");
+            knob(col, names[col], value);
+        }
+        return;
+    }
+    if (synth_mode && knob_bank != 2) {
+        static const char *const names[4] = {"VOICE", "VOLUME", "REVERB", "DELAY"};
+        const int numbers[4] = {frame_synth.program + 1, frame_synth.volume, frame_synth_sends[0], frame_synth_sends[1]};
+        for (unsigned col = 0; col < 4; ++col) {
+            char value[12];
+            decimal(value, numbers[col], 1);
             knob(col, names[col], value);
         }
         return;
@@ -617,11 +631,16 @@ static void leds(void)
     /* The selected drum stays lit; every drum winks when the pattern hits it. */
     for (unsigned lane = 0; lane < 8; ++lane)
         if ((lane_pad[lane] == drum) != ((frame_step_drums >> lane_pad[lane]) & 1U)) bits |= 1U << pad_keys[lane];
+    if (synth_mode) {
+        bits = 0;
+        for (unsigned key = 0; key < 27; ++key)
+            if (key_note[key] != 0xff) bits |= 1U << key;
+    }
     uint32_t changed = bits ^ led_cache;
     for (unsigned key = 0; key < 27; ++key)
         if (changed & (1U << key)) fm1_led_set(key + 14, (bits >> key) & 1U);
     led_cache = bits;
-    bits = ((bar > 0) << OCT_DOWN) | ((bar + 1U < bars) << OCT_UP) | ((knob_bank == 1) << FX) | (1U << HOME)
+    bits = ((synth_mode ? octave < 0 : bar > 0) << OCT_DOWN) | ((synth_mode ? octave > 0 : bar + 1U < bars) << OCT_UP) | ((knob_bank == 1) << FX) | (synth_mode << HOME)
         | (frame_dirty << SAVE) | ((knob_bank == 2 || smoke) << ENV) | ((view_page == PAGE_GAME) << LFO) | (frame_repeat << ARP) | (follow << SEQ)
         | ((v->playing != 0) << PLAY) | ((writing || (armed && blink)) << REC);
     changed = bits ^ button_led_cache;
@@ -648,6 +667,13 @@ static void draw(void)
     frame_swing = groove_sequence_setting(0);
     frame_samples = groove_samples_status();
     frame_repeat = groove_arp_enabled(KIT) != 0;
+    if (synth_mode) {
+        uint8_t patch[156];
+        groove_get_view(SYNTH, 0, &frame_synth);
+        groove_sends_get(SYNTH, frame_synth_sends);
+        memcpy(frame_voice, "SYNTH", 6);
+        if (!groove_fm_copy(SYNTH, patch, NULL)) { memcpy(frame_voice, patch + 145, 10); frame_voice[10] = 0; }
+    }
     if (held_step < GROOVE_STEPS) {
         frame_held[0] = (uint8_t)groove_step_setting(KIT, held_step, 0);
         frame_held[1] = (uint8_t)groove_step_setting(KIT, held_step, 2);
@@ -663,6 +689,7 @@ static void draw(void)
     scene_pulse = frame_view.playing && !(frame_view.play_step & 3U);
     /* Every drum lights the mark in its own colour, from the pattern or the keys. */
     scene_mark = BEACH_RGB(14, 8, 30);
+    if (synth_mode && led_cache) scene_mark = lane_color[2];
     for (unsigned lane = 0; lane < 8; ++lane)
         if (((frame_step_drums >> lane_pad[lane]) & 1U) || key_note[pad_keys[lane]] != 0xff) {
             scene_mark = lane_color[lane];
@@ -736,7 +763,7 @@ static int release_keys(void)
 {
     for (unsigned key = 0; key < 27; ++key)
         if (key_note[key] != 0xff) {
-            if (!post((uint8_t)(0x80 + groove_midi_input_channel(KIT)), key_note[key], 0, 3))
+            if (!post((uint8_t)(0x80 + key_channel[key]), key_note[key], 0, 3))
                 return 0;
             key_note[key] = 0xff;
         }
@@ -769,6 +796,15 @@ static void kit_prepare(uint32_t now)
         /* Settings left by other firmware must not silence the kit. */
         if (groove_track_role(KIT) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(KIT, GROOVE_TRACK_NORMAL);
         if (groove_midi_setting(KIT, 0) == 2) groove_settings_midi(KIT, 0, -1);
+        /* Patterns saved by earlier builds have no synth yet: give track 1 a DX7. */
+        if ((int32_t)(now - synth_retry) >= 0) {
+            struct groove_view track1 = {0};
+            synth_retry = now + 1000U;
+            if (groove_track_role(SYNTH) != GROOVE_TRACK_NORMAL) (void)groove_track_role_set(SYNTH, GROOVE_TRACK_NORMAL);
+            if (groove_source_type(SYNTH) != GROOVE_DX7) (void)groove_source_set(SYNTH, GROOVE_DX7);
+            groove_get_view(SYNTH, 0, &track1);
+            if (track1.muted) groove_mix_toggle(SYNTH, 0);
+        }
         return;
     }
     kit_ready = 0;
@@ -914,6 +950,38 @@ static void game_control(const struct fm1_controls *controls, uint32_t pressed, 
     if (game_fits(game_piece.x, game_piece.y + 1, game_piece.turn)) ++game_piece.y;
     else game_land();
 }
+static unsigned fx_value(unsigned index)
+{
+    uint8_t values[4];
+    if (index == FX_FEEDBACK) { groove_effects_get(values); return values[2]; }
+    groove_sends_get(index < FX_SYNTH_REVERB ? KIT : SYNTH, values);
+    return values[index & 1U];
+}
+/* Move the effects to where `level` puts them between the player's own
+ * settings and full. Level 0 hands the player's settings back untouched. */
+static void fx_apply(unsigned level)
+{
+    for (unsigned i = 0; i < FX_COUNT; ++i) {
+        if (!fx_applied) fx_base[i] = (uint8_t)fx_value(i);
+        int top = i == FX_FEEDBACK ? FX_FEEDBACK_TOP : 15, base = fx_base[i];
+        int want = base >= top ? base : base + (top - base) * (int)level / 100, delta = want - (int)fx_value(i);
+        if (!delta) continue;
+        if (i == FX_FEEDBACK) groove_effects_edit(2, delta);
+        else groove_sends_edit(i < FX_SYNTH_REVERB ? KIT : SYNTH, i & 1U, delta);
+    }
+    fx_applied = level;
+}
+/* An effects knob moves the player's own setting, under the macro if it is up. */
+static void fx_knob(unsigned index, int delta)
+{
+    if (!fx_applied) {
+        if (index == FX_FEEDBACK) groove_effects_edit(2, delta);
+        else groove_sends_edit(index < FX_SYNTH_REVERB ? KIT : SYNTH, index & 1U, delta);
+        return;
+    }
+    fx_base[index] = (uint8_t)clamp((int)fx_base[index] + delta, 0, index == FX_FEEDBACK ? 100 : 15);
+    fx_apply(fx_applied);
+}
 /* Per-step edits while a step is held: velocity, chance of playing, and one
  * parameter lock (level, tune or decay of the selected drum, on this step only).
  * A step keeps one velocity, chance and lock for all the drums on it. */
@@ -1003,7 +1071,10 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         groove_sequence_length_set(KIT, bars * 16U);
         say(lengths[bars - 1], now, 1500);
     }
-    if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) {
+    if (synth_mode && (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP)))) {
+        if (!release_keys()) return;
+        octave = clamp(octave + (pressed & BUTTON(OCT_UP) ? 1 : -1), -2, 2);
+    } else if (pressed & (BUTTON(OCT_DOWN) | BUTTON(OCT_UP))) {
         bar = (unsigned)clamp((int)bar + (pressed & BUTTON(OCT_UP) ? 1 : -1), 0, (int)bars - 1);
         follow = 0;
     }
@@ -1030,8 +1101,20 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         else { groove_arp_set(KIT, 0); groove_arp_edit(KIT, 0, -3); }
         say(groove_arp_enabled(KIT) ? rates[groove_arp_setting(KIT, 0) & 3U] : "REPEAT OFF", now, 1500);
     }
+    if (pressed & BUTTON(HOME)) {
+        if (!release_keys()) return;
+        synth_mode = !synth_mode;
+        held_step = GROOVE_STEPS;
+        blocked_keys = controls->keys;
+        say(synth_mode ? "SYNTH: KEYS PLAY, OCT SHIFTS" : "DRUMS: BLACK PLAY, WHITE STEP", now, 2000);
+    }
+    if (smoke != fx_applied) fx_apply(smoke);
     if (pressed & BUTTON(SAVE)) {
+        /* Store the player's own effect settings, not the macro's push. */
+        unsigned macro = fx_applied;
+        if (macro) fx_apply(0);
         int r = groove_project_save_slot(KIT_SLOT);
+        if (macro) fx_apply(macro);
         say(r == FM1_FLASH_BUSY ? "BUSY - PRESS SAVE AGAIN" : r ? "SAVE FAILED" : "PATTERN SAVED", now, 1500);
     }
     /* EDIT is delete: with a white key it empties that step, with a black key
@@ -1062,9 +1145,15 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
             else smoke = col == 2 ? 100 : 0;
             continue;
         }
+        if (synth_mode) {
+            if (col == 0) groove_control_edit(SYNTH, turn, 0, 0);
+            else if (col == 1) groove_control_edit(SYNTH, 0, encoder_delta(2 + col, turn), 0);
+            else fx_knob(col, turn); /* FX_SYNTH_REVERB, FX_SYNTH_DELAY */
+            continue;
+        }
         if (knob_bank) {
-            if (col < 2) groove_sends_edit(KIT, col, turn);
-            else if (col == 2) groove_effects_edit(2, encoder_delta(2 + col, turn));
+            if (col < 2) fx_knob(col, turn);
+            else if (col == 2) fx_knob(FX_FEEDBACK, encoder_delta(2 + col, turn));
             else groove_sequence_setting_edit(0, turn);
         } else if (col == 3) {
             groove_tempo_edit(turn);
@@ -1075,8 +1164,25 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         if (!knob_bank && col == 3 && groove_clock_mode() == GROOVE_CLOCK_MIDI) say("MIDI CLOCK - HOLD ARP FOR INTERNAL", now, 2000);
     }
 
-    /* Keys: black keys play and select drums, white keys write steps. */
     uint32_t keys = controls->keys & ~blocked_keys;
+    if (synth_mode) {
+        /* All 27 keys play the synth, F3 to G5 before the octave shift. */
+        unsigned synth_channel = groove_midi_input_channel(SYNTH);
+        for (unsigned key = 0; key < 27; ++key) {
+            unsigned down = (keys >> key) & 1U, note = groove_key_note(SYNTH, key, octave);
+            if (key_note[key] != 0xff && !down) {
+                if (!post((uint8_t)(0x80 + key_channel[key]), key_note[key], 0, 3)) return;
+                key_note[key] = 0xff;
+            }
+            if (down && key_note[key] == 0xff && note < 128) {
+                if (!post((uint8_t)(0x90 + synth_channel), (uint8_t)note, 100, 3)) return;
+                key_note[key] = (uint8_t)note;
+                key_channel[key] = (uint8_t)synth_channel;
+            }
+        }
+        return;
+    }
+    /* Keys: black keys play and select drums, white keys write steps. */
     for (unsigned lane = 0; lane < 8; ++lane) {
         unsigned key = pad_keys[lane], down = (keys >> key) & 1U, note = groove_pad_note(KIT, lane_pad[lane]);
         if (key_note[key] != 0xff && !down) {
@@ -1095,6 +1201,7 @@ static void apply_controls(const struct fm1_controls *controls, uint32_t now, co
         if (down && key_note[key] == 0xff && note < 128) {
             if (!post((uint8_t)(0x90 + channel), (uint8_t)note, 100, 3)) return;
             key_note[key] = (uint8_t)note;
+            key_channel[key] = (uint8_t)channel;
             drum = lane_pad[lane];
         }
     }
@@ -1128,7 +1235,9 @@ void groove_screen_init(void)
     held_step = GROOVE_STEPS;
     kit_retry = scene_at = splash_at = fm1_millis();
     view_page = PAGE_SPLASH;
-    last_step = glitch = smoke = smoke_shown = 0;
+    last_step = glitch = smoke = smoke_shown = fx_applied = synth_mode = 0;
+    octave = 0;
+    synth_retry = fm1_millis();
     smoke_drift = 2;
     scene_phase = scene_pulse = 0;
     previous_buttons = previous_keys = blocked_keys = retry_reset = 0;
