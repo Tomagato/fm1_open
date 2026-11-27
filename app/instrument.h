@@ -332,7 +332,7 @@ enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
 enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
        GROOVE_LIBRARY_OFFSET = GROOVE_TUNING_OFFSET - 4 * 4096,
        GROOVE_SAMPLE_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET };
-/* Beach 909 player backdrop: header (16 B) and 120x56 little-endian RGB565
+/* Bitch909 player backdrop: header (16 B) and 120x56 little-endian RGB565
  * pixels in the last four sectors of the sample area. See background.c. */
 enum { GROOVE_BACKGROUND_W = 120, GROOVE_BACKGROUND_H = 56,
        GROOVE_BACKGROUND_BYTES = 16 + GROOVE_BACKGROUND_W * GROOVE_BACKGROUND_H * 2,

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* Beach 909 panel.
+/* Bitch909 panel.
  * Modified from FM1 Open V14 app/screen.c, Copyright (c) 2026 M-VAVE.
- * Changed in November 2026 for the Beach 909 firmware: the multi-page
+ * Changed in November 2026 for the Bitch909 firmware: the multi-page
  * instrument UI was replaced by one drum-machine page with a space scene.
  * The band painter, font and input helpers are kept from the original. */
 #include "instrument.h"
@@ -139,7 +139,8 @@ static const uint8_t lane_pad[8] = {0, 1, 6, 7, 3, 2, 4, 5}, pad_lane[8] = {0, 1
 static const uint16_t lane_color[8] = {
     BEACH_RGB(232, 36, 48),   BEACH_RGB(244, 244, 244), BEACH_RGB(40, 130, 240),  BEACH_RGB(255, 124, 124),
     BEACH_RGB(124, 184, 255), BEACH_RGB(180, 180, 194), BEACH_RGB(255, 88, 40),   BEACH_RGB(204, 230, 255)};
-static const char kit_name[] = "BEACH 909";
+static const char kit_name[] = "BITCH909";
+static const char old_kit_name[] = "BEACH 909"; /* what earlier builds called it; their saved loops still load */
 enum { PAGE_KIT = 1, PAGE_GAME, PAGE_SPLASH, PAGE_COINS, GAME_W = 8, GAME_H = 14 };
 
 static unsigned drum;
@@ -683,7 +684,7 @@ static void splash_draw(void)
     text(50 - shift * 2, 192, "MIZU RECORDS", 2, tint[(jitter + 1U) & 3U], BACK);
     if (cache->hint == 1) return;
     cache->hint = 1;
-    text(66, 216, kit_name, 2, lane_color[0], BACK);
+    text(72, 216, kit_name, 2, lane_color[0], BACK);
 }
 static const struct { uint8_t size, count; int8_t cell[4][2]; } game_shapes[6] = {
     {2, 2, {{0, 0}, {1, 0}}},                 {3, 3, {{0, 1}, {1, 1}, {2, 1}}},
@@ -948,9 +949,10 @@ static int kit_loaded(void)
 {
     char name[13];
     groove_project_name(name);
-    return groove_source_type(KIT) == GROOVE_SAMPLE && !memcmp(name, kit_name, sizeof kit_name - 1);
+    return groove_source_type(KIT) == GROOVE_SAMPLE &&
+           (!memcmp(name, kit_name, sizeof kit_name - 1) || !memcmp(name, old_kit_name, sizeof old_kit_name - 1));
 }
-/* Keep the Beach 909 project in the workspace: the pattern saved in the last
+/* Keep the Bitch909 project in the workspace: the pattern saved in the last
  * project slot when there is one, the built-in pattern otherwise. Projects in
  * the other slots are never written. Flash may be busy at power-on; retry. */
 static void kit_prepare(uint32_t now)
@@ -992,7 +994,8 @@ static void kit_prepare(uint32_t now)
     char stored[13];
     int r = groove_project_info(KIT_SLOT, stored);
     if (r == FM1_FLASH_BUSY) return;
-    r = !r && !memcmp(stored, kit_name, sizeof kit_name - 1) ? groove_project_load_slot(KIT_SLOT) : groove_factory_load(0);
+    r = !r && (!memcmp(stored, kit_name, sizeof kit_name - 1) || !memcmp(stored, old_kit_name, sizeof old_kit_name - 1))
+        ? groove_project_load_slot(KIT_SLOT) : groove_factory_load(0);
     if (r == FM1_FLASH_BUSY) return;
     if (r || !kit_loaded()) r = groove_factory_load(0);
     if (!r) groove_project_clean(); /* SAVE lights only for the player's own edits. */

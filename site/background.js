@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
-// Beach 909 backdrop: turn a picture into the 120x56 RGB565 block the firmware
+// Bitch909 backdrop: turn a picture into the 120x56 RGB565 block the firmware
 // keeps, and send it with the FM1 transfer protocol (see app/transfer.c).
 (function (root) {
   'use strict';

@@ -96,7 +96,7 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 {
     int r = GROOVE_PROJECT_INVALID;
     *count = 0;
-    /* Beach 909 backdrop: 30 state, 31 write chunk, 32 finish with CRC, 33 clear. */
+    /* Bitch909 backdrop: 30 state, 31 write chunk, 32 finish with CRC, 33 clear. */
     if (cmd == 30 && !n) {
         out[0] = groove_background() != NULL; out[1] = GROOVE_BACKGROUND_W; out[2] = GROOVE_BACKGROUND_H;
         *count = 3; return 0;

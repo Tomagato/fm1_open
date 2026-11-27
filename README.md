@@ -1,4 +1,4 @@
-# Beach 909 for M-VAVE FM-1
+# Bitch909 for M-VAVE FM-1
 
 A Terms Of Service release on Mizu Records.
 
@@ -6,7 +6,7 @@ A fork of [FM1 Open V14](https://github.com/m-vave/fm1_open) that turns the FM-1
 
 The FM-1 sound engine is a closed binary, so the kit is the built-in sampler loaded with a 909-style drum kit. The kit is synthesized (oscillators and noise, `web/synth/demo_bank.h`); it contains no recordings. The stock firmware fills its Flash slot to within a few hundred bytes, so the multi-page FM1 Open panel (DX7/303/808 editors, mixer, Bluetooth and MIDI menus) is not in this build. The engines, MIDI input, USB audio and the workbench transfers are unchanged.
 
-| Control | Beach 909 |
+| Control | Bitch909 |
 | --- | --- |
 | Keys | Play the DX7 synth (all 27 keys) |
 | REC | Loop recorder. One press starts recording what you play into a four-bar loop (and starts the loop if it was stopped); press again to keep it and carry on playing over it. Hold REC for three seconds to delete everything. The loop records whichever of the synth or drums the keys are on |

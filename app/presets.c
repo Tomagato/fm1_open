@@ -33,8 +33,8 @@ struct scene {
  * dry, keys get a small room, sparse leads and arps get tempo-related echoes.
  * delay_steps counts sixteenths at the scene's initial tempo. */
 static const struct scene scenes[GROOVE_FACTORY_PROJECTS] = {
-    /* Slot 1 is the Beach 909 kit, built by beach_build() below. */
-    {"BEACH 909",   124,45,1, 0,0,0,0, 52,2,38,76, {{0}}},
+    /* Slot 1 is the Bitch909 kit, built by beach_build() below. */
+    {"BITCH909",   124,45,1, 0,0,0,0, 52,2,38,76, {{0}}},
     {"ACID ALLEY",  130,38,1, 0,1,1,3, 38,2,42,68, {AC(1,BASS,42,0,1), DR(86), FM(SOFT_LEAD,LEAD,77,2,4)}},
     {"VELVET DUSK",  82,41,1,18,2,2,4, 72,1,28,78, {FM(SOFT_EP,KEYS,102,5,0), FM(SUB_BASS,BASS,92,0,0), SA(BEAT,76), FM(VIBES,LEAD,76,4,3)}},
     {"GLASS TIDE",   72,38,0, 0,0,3,3, 98,1,52,94, {FM(BELL,LEAD,94,7,5), PL(1,ARP,85,7,4), FM(WARM_PAD,PAD,89,7,0)}},
@@ -213,7 +213,7 @@ const char *groove_factory_name(unsigned index)
 {
     return index < GROOVE_FACTORY_PROJECTS ? scenes[index].name : NULL;
 }
-/* Beach 909: one sampler kit on track 8 (MIDI channel 10), one bar of house.
+/* Bitch909: one sampler kit on track 8 (MIDI channel 10), one bar of house.
  * Pads follow the factory kit: kick, snare, rim, clap, tom, crash, closed
  * hat, open hat. Track 1 is a DX7 for the keys; the other six stay empty and muted. */
 static int beach_build(struct groove_project *p)
@@ -223,7 +223,7 @@ static int beach_build(struct groove_project *p)
     static const uint16_t lanes[SAMPLE_DRUM_PADS] = {0}; /* played live: no pattern */
     static const uint8_t levels[SAMPLE_DRUM_PADS] = {112,98,80,90,94,72,70,74};
     memset(p, 0, sizeof *p);
-    memcpy(p->name, "BEACH 909   ", sizeof p->name);
+    memcpy(p->name, "BITCH909    ", sizeof p->name);
     p->tempo = 124; p->mute = 0x7e;
     p->effects[0] = 98; p->effects[1] = 135; p->effects[2] = 85; p->effects[3] = 100;
     groove_sequence_defaults(&p->sequence);

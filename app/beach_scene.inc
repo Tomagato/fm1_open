@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* Beach 909 backdrop: deep space, 120x56 logical pixels painted at 2x on the
+/* Bitch909 backdrop: deep space, 120x56 logical pixels painted at 2x on the
  * LCD. Integer only and stateless, so the same pixels come out on the device
  * and in the browser preview. `phase` drifts the stars; `pulse` swells the
  * star that carries the Terms Of Service mark, the act's logo. `picture`, when

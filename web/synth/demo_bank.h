@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
- * Synthesized 909-style drum kit for browser initialization (Beach 909). */
+ * Synthesized 909-style drum kit for browser initialization (Bitch909). */
 #ifndef FM1_DEMO_BANK_H
 #define FM1_DEMO_BANK_H
 #include <math.h>

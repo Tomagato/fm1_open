@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* Player-supplied backdrop for Beach 909: one 120x56 RGB565 picture, sent from
+/* Player-supplied backdrop for Bitch909: one 120x56 RGB565 picture, sent from
  * the browser and kept in the last four sectors of the sample area. A sample
  * bank large enough to reach those sectors takes them back: the picture then
  * fails its checksum and the built-in scene returns. Control task only. */
